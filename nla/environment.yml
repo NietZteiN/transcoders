@@ -1,0 +1,35 @@
+# Conda environment for Instrument 2 (Natural Language Autoencoders).
+# Envs live under /data (not the default prefix), matching sibling projects:
+#   conda env create -f environment.yml -p /data/jvl210002/conda_envs/nla-mi
+#   conda activate /data/jvl210002/conda_envs/nla-mi
+# (set TMPDIR=/data/jvl210002/tmp_pip for pip builds so $HOME NFS doesn't fill.)
+#
+# Heavy GPU deps go through pip, not conda: sglang pins its own torch/flashinfer
+# build and conda-forge's torch would fight it. Host is 4x RTX A6000 (sm_86) on
+# driver 595.71.05 / CUDA 13.2 -> FlashAttention-2 is supported, FA3 is not
+# (Hopper-only; only matters for the Gemma NLAs, which we do not use).
+#
+# Pin exact versions once G0 (reference-number replication) passes.
+name: nla-mi
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy                   # Wilson CIs, bootstrap, correlation tests
+  - pandas
+  - pyarrow                 # activation parquets (the NLA repo's data contract)
+  - pyyaml                  # nla_meta.yaml sidecars
+  - scikit-learn            # ridge refit of the AR value head (Phase 3 rescue)
+  - matplotlib
+  - tabulate
+  - pytest
+  - pip:
+      - "sglang[all]>=0.5.6"   # AV rollout server; must support input_embeds
+      - transformers
+      - safetensors
+      - accelerate
+      - httpx
+      - orjson
+      - datasets

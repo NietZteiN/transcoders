@@ -1,0 +1,40 @@
+# Stimuli — the obfuscated-code snippets reused from Papers 2–3. Functional equivalence
+# across tiers is already execution-validated upstream. Large data lives under data/,
+# never $HOME (../CLAUDE.md §2). Loaders: src/data.py.
+
+# Obfuscation ladder (used throughout the project):
+tiers:
+  L0:  { name: original,               attacks: "—" }
+  L1:  { name: renaming,               attacks: "Atom × Text-surface (beacon removed)" }
+  L1b: { name: adversarial_renaming,   attacks: "Atom × Function (beacon corrupted; Stroop)" }
+  L2:  { name: control_flow_flattening, attacks: "Relations & Macro × Program-execution (dispatcher)" }
+  L3:  { name: stacked,                attacks: "all of the above at once" }
+
+languages: [python, javascript]
+
+datasets:
+  dataset_a:
+    description: "20 HumanEval-X snippets × 5 tiers, with human labels (Paper 2/3 Dataset A)."
+    n_snippets: 20
+    tiers: [L0, L1, L1b, L2, L3]
+    has_human_labels: true
+    path: data/stimuli/dataset_a/            # JSONL per src/data.py schema (TODO populate)
+  dataset_b:
+    description: "250 snippets (HumanEval-X, CruxEval-X, LeetCode 05/2025), contamination-controlled."
+    n_snippets: 250
+    tiers: [L0, L1, L1b, L2, L3]
+    has_human_labels: false
+    path: data/stimuli/dataset_b/            # TODO populate
+
+# Per-item behavioral tables from Papers 2–3 to JOIN against feature/attention measures.
+# This join is a Phase-0 prerequisite for HT1/HT3/HT6 (see docs/CHECKLIST.md).
+behavioral_tables:
+  path: data/behavioral/                     # TODO import from Papers 2–3 artifacts
+  columns_needed: [snippet_id, model, tier, accuracy, hci, isf, dispatcher_state_count]
+
+# Alignment metadata: identifier CHARACTER SPANS aligned across L0/L1/L1b (from Paper 2's
+# SFR-embedding pipeline) — required for E1/E6. Spans, not token indices: token indices are
+# tokenizer-specific and would be silently wrong across the panel (src/data.py docstring).
+# Spans land in each snippet's `identifier_spans` / `dispatcher_spans` JSONL fields.
+alignment:
+  identifier_spans_path: data/stimuli/alignment/   # TODO populate

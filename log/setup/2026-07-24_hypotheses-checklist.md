@@ -1,0 +1,11 @@
+### Target Date: 2026-07-24 (Hypotheses + experiment + task checklist)
+- **Hypotheses / what we're testing:** None — organizational/planning. Goal: formalize the project's hypotheses, experiments, and to-do list into a single living checklist.
+- **Setup:** Working dir `transcoders/`. No GPU. Source docs: [`../../docs/experiment_menu.md`](../../docs/experiment_menu.md) (E1–E8 menu with confirm/falsify conditions) + the proposal deck (attention H1–H4) + Papers 2–3 anchor findings. Wrote [`../../docs/CHECKLIST.md`](../../docs/CHECKLIST.md) and referenced it from `../../CLAUDE.md` §0/§3.
+- **Results:** Checklist created with three parts:
+  - **Hypotheses ledger** — 8 transcoder-instrument hypotheses **HT1–HT8**, each mapped to one experiment, one Block-Model cell, and the prior finding it must explain (HT1↔E1 HCI collapse 21.25%/10.0%; HT3↔E3 r=−0.196; HT5↔E5 ρ=0.30–0.47; HT8↔E8 ~2048-tok plateau). Plus the external attention **H1–H4** that E7 triangulates against.
+  - **Experiments E1–E8** — per-experiment method checkboxes, metric, confirm/refute, baselines, risks, feasibility; committed set **E1+E2+E3(PoC)+E7 (+E4)**.
+  - **Task list** — Phase 0 infra/data/dictionaries → Phase 1 committed Tier-1 → Phase 2 stretch → Phase 3 synthesis; + a per-experiment "definition of done" discipline gate.
+- **What worked / hypothesis verdict:** N/A (planning). Links verified to resolve.
+- **Observations:** Formalizing the menu's confirm/falsify lines into numbered hypotheses surfaced the natural thread decomposition for `log/` (sae-features, steering, attribution-graphs, state-binding, triangulation) — those folders get created when their first entry lands. E7 and E4 are the cheapest high-value starts (E7 pure analysis; E4 needs no pretrained dictionary).
+- **New questions / new hypotheses:** Confirm the Papers 2–3 per-item behavioral tables (accuracy/HCI/ISF/dispatcher-count) are available in a form joinable to feature measures — that join is a Phase-0 prerequisite for HT1/HT3/HT6.
+- **Next Steps:** Begin Phase 0 — create `src/`/`configs/`/`data/`, pin the conda env, pull stimuli + pretrained dictionaries.

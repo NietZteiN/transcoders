@@ -1,0 +1,5 @@
+# Large artifacts are never committed; keep only the folder docs.
+*
+!.gitignore
+!README.md
+!DATA_SOURCES.md

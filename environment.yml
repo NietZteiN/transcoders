@@ -1,0 +1,53 @@
+# Conda environment for the transcoders/ sub-project (Instrument 3: SAE + transcoder analysis).
+# Create with an explicit PREFIX under /data (NOT $HOME — small NFS):
+#
+#   conda env create -p /data/jvl210002/conda_envs/transcoders-mi -f environment.yml
+#   source scripts/env.sh          # activation + LD_LIBRARY_PATH + TMPDIR/HF_HOME
+#
+# Host: csr-94608.utdallas.edu · 4× RTX A6000 (48 GB) · driver 595.71.05 / CUDA 13.2.
+#
+# FROZEN 2026-08-03 after the first clean solve on the host (env exists; `pip check` clean;
+# smoke green). Full transitive freeze: environment.lock.txt. Two install-order facts:
+#   1. circuit-tracer is installed POST-CREATE from GitHub (pinned sha below) — it DOWNGRADES
+#      transformers 5.x→4.57.x, transformer-lens →3.2.x, nnsight →0.6.x to satisfy its pins.
+#      The pins below are the FINAL post-circuit-tracer state. If you skip circuit-tracer you
+#      get newer versions — don't, unless E3 is descoped.
+#   2. Python must start with LD_LIBRARY_PATH=$ENV/lib (conda libstdc++ / CXXABI_1.3.15;
+#      sqlite3/ICU imports fail without it) — scripts/env.sh handles this.
+name: transcoders-mi
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      # --- core DL stack (cu130 wheels resolved on this host) -------------------
+      - torch==2.13.0
+      - transformers==4.57.3        # held down by circuit-tracer (see header note 1)
+      - accelerate==1.14.0
+      - safetensors==0.8.0
+      - huggingface-hub==1.26.0
+      - datasets==5.0.1
+      - tokenizers==0.22.2
+      - einops==0.8.2
+      - sentencepiece==0.2.2
+      # --- interpretability tooling (the reason this project exists) -----------
+      - sae-lens==6.47.0
+      - transformer-lens==3.2.1     # held down by circuit-tracer
+      - nnsight==0.6.1              # held down by circuit-tracer
+      # circuit-tracer: install AFTER env create (GitHub-only), pinned to the sha in
+      # environment.lock.txt:
+      #   pip install "git+https://github.com/safety-research/circuit-tracer.git@8f1e2438df612464e229e44c4a00ff637bf9379b"
+      # --- scientific stack (probing, stats, plots) ---------------------------
+      - numpy==2.4.6
+      - pandas==3.0.5
+      - scipy==1.17.1
+      - scikit-learn==1.9.0         # linear probes (E4), RSA/CKA baselines (E5)
+      - statsmodels==0.14.6         # GLMM-adjacent modeling; primary GLMMs may reuse the R stack
+      - matplotlib==3.11.1
+      - seaborn==0.13.2
+      # --- utilities -----------------------------------------------------------
+      - pyyaml==6.0.3
+      - tqdm==4.70.0
+      - rich==15.0.0
+      - orjson==3.11.9

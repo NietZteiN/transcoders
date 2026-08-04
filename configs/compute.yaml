@@ -1,0 +1,30 @@
+# Machine-readable compute facts for the host. Mirrors ../CLAUDE.md §1.
+# NO SLURM — jobs run directly; select an idle GPU and pin CUDA_VISIBLE_DEVICES
+# BEFORE importing torch. src/gpu.py reads these thresholds.
+host: csr-94608.utdallas.edu
+scheduler: none            # no SLURM/squeue/sbatch on this host
+gpus:
+  model: NVIDIA RTX A6000
+  count: 4
+  indices: [0, 1, 2, 3]
+  memory_gb: 48
+driver: 595.71.05
+cuda: "13.2"
+cpu_cores: 96
+ram_gb: 250
+
+# "idle" definition — entrypoints load this file and pass these to src/gpu.py::pick_free_gpus
+# (gpu.py itself stays config-free so it can run before anything else).
+idle_thresholds:
+  max_mem_used_mb: 1000     # a GPU with >1 GB used is considered in-use
+  max_util_pct: 5           # ...or >5% utilization
+
+paths:
+  project_root: /data/jvl210002/my_downloads/transcoders
+  data_root: /data/jvl210002/my_downloads/transcoders/data   # large artifacts live here, never $HOME
+  hf_home: /data/jvl210002/my_downloads/.cache/huggingface
+  tmpdir: /data/jvl210002/tmp_pip
+  conda_env: /data/jvl210002/conda_envs/transcoders-mi
+
+# NOTE: run knobs (seed, dtype, layers, …) live in configs/experiments/_base.yaml — this
+# file holds host facts only, so there is exactly one owner per knob.

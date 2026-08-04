@@ -1,0 +1,32 @@
+# E1 — Semantic-capture feature diff under adversarial renaming (L0 vs L1b).
+# Tests HT1 (docs/CHECKLIST.md). Flagship, Tier 1. Forward-pass only → fits one A6000.
+#
+# This config drives ONLY the activation-extraction stage (src/extract_activations.py):
+# collect residual-stream SAE-input activations at identifier positions on matched L0/L1b
+# pairs. Downstream stages (auto-interp labeling, decoy/true feature-set selection, the
+# Semantic-Capture Score, correlation with HCI) are separate steps that consume this cache.
+extends: _base.yaml
+
+experiment: e1_semantic_capture
+tests_hypothesis: HT1
+
+model: llama31_8b_instruct       # resolved from models.yaml (primary entry point)
+dictionary: llama_scope_res      # resolved from dictionaries.yaml (residual-stream SAE)
+
+dataset: dataset_a               # start on the 20 human-labeled snippets; scale to dataset_b
+tiers: [L0, L1b]                 # matched pair for the semantic-capture diff
+token_positions: identifiers     # aligned identifier positions across L0/L1b
+
+layers: [12, 16, 20]             # mid-layer sweep; refine after the layer scan
+
+# Semantic-Capture Score (computed downstream, recorded here for provenance):
+#   SCS = (Δ decoy-feature mass) − (Δ true-feature mass)  from L0→L1b at identifier positions
+scs:
+  correlate_with: [hci, accuracy]     # from configs/data.yaml behavioral_tables
+  decoy_true_feature_sets: null       # TODO: populate from auto-interp labeling step
+
+notes: >
+  First concrete item to eyeball: fibfib disguised as smoothArea(_lastNSecs); myFunct(14) -> 927.
+  Watch for absorption/splitting corrupting the decoy/true separation — try Matryoshka / multi-width
+  SAEs if the sets don't cleanly separate. Validate SAE feature labels on the actual Instruct
+  checkpoint (dictionaries are base-trained).

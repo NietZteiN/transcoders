@@ -1,0 +1,260 @@
+# Pretrained SAE / transcoder dictionaries per model. Referenced by key from experiment
+# configs. Availability is the feasibility crux (../CLAUDE.md §1).
+#
+# HONESTY NOTE: exact HF repo ids below are marked `repo: null  # TODO confirm` where I am
+# not certain of the string — do NOT run against a guessed id. Fill in + PIN the revision
+# after locating the real release, and record the dictionary identity in every run manifest.
+# `type` ∈ {sae, transcoder, clt}. `hook` = residual-stream site (layer index resolved per model).
+
+dictionaries:
+  # ---- Llama-3.1-8B: Llama Scope (arXiv:2410.20526) ---------------------------
+  # Llama Scope organization (verified 2026-08-04 via HfApi): the 256 SAEs are split across
+  # 8 repos under OpenMOSS-Team (org renamed from fnlp; old fnlp/* ids still resolve as
+  # aliases): LX{R,A,M,TC} x {8x,32x}, each repo holding all 32 layers as subfolders.
+  # Frontpage/index repo: OpenMOSS-Team/Llama-Scope @ b1f458a14a7e395a3693a136ad9be8c6381bcc2d.
+  llama_scope_res:
+    model: llama31_8b_instruct
+    type: sae
+    hook: resid_post
+    source: "Llama Scope (OpenMOSS/fnlp), arXiv:2410.20526"
+    repo: OpenMOSS-Team/Llama3_1-8B-Base-LXR-8x   # verified 2026-08-04 via HfApi.model_info
+    revision: 8dbc1d85edfced43081c03c38b05514dbab1368b
+    layers: all               # 32 SAEs, one per layer (L0R..L31R); pick mid-layers for E1
+    subfolder_pattern: "Llama3_1-8B-Base-L<L>R-8x/{hyperparams.json,lm_config.json,checkpoints/final.safetensors}"
+    width_variants:
+      - repo: OpenMOSS-Team/Llama3_1-8B-Base-LXR-32x   # 131072 latents (32x)
+        revision: 336730e758fed3cb2273276703d836aa8659d293
+    notes: >-
+      Per-layer cfg: hook_point blocks.<L>.hook_resid_post, d_model 4096, expansion x8
+      -> 32768 latents, act_fn jumprelu (top_k 50, TopK-trained then thresholded),
+      norm_activation dataset-wise; trained on meta-llama/Llama-3.1-8B BASE (lm_config.json)
+      — validate base->Instruct transfer. Loadable with STOCK SAELens (v5.x registry):
+      SAE.from_pretrained(release="llama_scope_lxr_8x", sae_id="l<L>r_8x") — registry keeps
+      the fnlp/ alias + per-layer norm_scaling_factor; also llama_scope_lxr_32x. Neuronpedia:
+      llama3.1-8b/<L>-llamascope-res-32k. Sibling sites (same layout, not registered here):
+      LXA (attn, 32x variant has many dead features per authors) and LXM (mlp_out).
+  llama_scope_tc:
+    model: llama31_8b_instruct
+    type: transcoder
+    hook: mlp
+    source: "Llama Scope transcoder ('TC') site, all 32 layers"
+    repo: OpenMOSS-Team/Llama3_1-8B-Base-LXTC-8x   # verified 2026-08-04 via HfApi.model_info
+    revision: a51e5499031b69022363a73f1fd1dece523668dd
+    layers: all               # 32 per-layer MLP transcoders (L0TC..L31TC)
+    subfolder_pattern: "Llama3_1-8B-Base-L<L>TC-8x/{hyperparams.json,lm_config.json,checkpoints/final.safetensors}"
+    width_variants:
+      - repo: OpenMOSS-Team/Llama3_1-8B-Base-LXTC-32x   # 131072 latents (32x)
+        revision: a213948c67b95b5b3a0f6cfc1bd3a9a501b1f5f2
+    notes: >-
+      Per-layer cfg: hook_point_in blocks.<L>.ln2.hook_normalized -> hook_point_out
+      blocks.<L>.hook_mlp_out (per-layer MLP transcoder, NOT cross-layer), d_model 4096,
+      jumprelu (top_k 50). NOT in the SAELens registry (only R/A/M sites are) — load via
+      OpenMOSS Language-Model-SAEs (lm_sae) tooling
+      (github.com/OpenMOSS/Language-Model-SAEs, examples/loading_llamascope_saes.ipynb)
+      or manual safetensors read. For E3 per-layer transcoder attribution; CLT may need
+      training for full cross-layer.
+  eleuther_llama31_sae:
+    model: llama31_8b_instruct
+    type: sae
+    hook: mlp_out             # 32x repo is MLP-out ONLY; 64x repo adds residual hookpoints
+    source: "EleutherAI TopK SAEs for Llama-3.1-8B (base), RedPajama-v2 10B sample (~8.5B tokens)"
+    repo: EleutherAI/sae-llama-3.1-8b-64x   # verified 2026-08-04 via HfApi.model_info
+    revision: a4e880bb6cc55fa5e9107a58cb634106d9ce782f
+    layers: [23, 29]          # SPARSE coverage — only 2 layers, NOT a full suite
+    subfolder_pattern: "layers.<L>{,.mlp}/{cfg.json,sae.safetensors}"
+    width_variants:
+      - repo: EleutherAI/sae-llama-3.1-8b-32x   # layers.23.mlp + layers.29.mlp only, k=128
+        revision: ed63bac9f0fea4119912c141b76e4f26ddf652b5
+    notes: >-
+      64x repo: hookpoints layers.23 / layers.29 (residual) AND layers.23.mlp / layers.29.mlp;
+      MultiTopK k=32, expansion x64 (d_in 4096 -> 262144 latents), usable at varying sparsity.
+      32x repo: MLP-out only, TopK k=128, x32 -> 131072 latents. Trained on BASE Llama-3.1-8B.
+      Load with sparsify (ex-sae) lib: Sae.load_from_hub("EleutherAI/sae-llama-3.1-8b-64x",
+      hookpoint="layers.23"). CAVEAT vs experiment_menu §3: this is NOT layer-complete —
+      only layers 23/29 — so it is a spot-check dictionary, not an E1 sweep dictionary.
+  goodfire_llama31_l19:
+    model: llama31_8b_instruct
+    type: sae
+    hook: resid_post
+    source: "Goodfire SAE for Llama-3.1-8B-Instruct layer 19 (LMSYS-Chat-1M activations)"
+    repo: Goodfire/Llama-3.1-8B-Instruct-SAE-l19   # verified 2026-08-04 via HfApi.model_info
+    revision: f6775a221e47b44233af4bac2c7b65189265519a
+    layers: [19]              # single SAE
+    subfolder_pattern: "Llama-3.1-8B-Instruct-SAE-l19.pth (single torch state_dict at repo root; + config.yaml = wandb dump)"
+    notes: >-
+      The ONLY dictionary here trained on the actual Instruct checkpoint (matches our panel
+      model) — no base->instruct transfer confound; use to validate Llama Scope transfer.
+      L0 = 91 (README). Raw .pth state dict, NOT SAELens/sparsify format — load with
+      torch.load + Goodfire's SAE class (their Colab notebook / Ember SDK docs). License
+      llama3.1; not gated. Toxic features were removed before release (README).
+
+  # ---- Qwen3: Qwen-Scope (arXiv:2605.11887) / BluelightAI CLTs / mwhanna PLTs ----
+  # NB: Qwen-Scope covers Qwen3-1.7B/8B only — it does NOT cover the panel's 0.6B (review
+  # finding: the earlier pairing qwen_scope_res↔qwen3_0_6b was invalid). ALL Qwen3
+  # dictionaries below except the mwhanna PLTs are trained on Qwen3-*-BASE while the panel
+  # runs the post-trained Qwen3 line — same base→post-trained transfer caveat as Llama Scope.
+  qwen_scope_res:
+    model: qwen3_1_7b
+    type: sae
+    hook: resid_post
+    source: "Qwen-Scope (official Qwen release), arXiv:2605.11887"
+    repo: Qwen/SAE-Res-Qwen3-1.7B-Base-W32K-L0_50   # verified 2026-08-04 via HfApi.model_info
+    revision: ce1a79d9c5163932d65c417380e53230e1086370
+    layers: all               # 28 SAEs (layers 0-27), resid_post of model.layers[L]
+    subfolder_pattern: "layer<L>.sae.pt at repo root (torch dict: W_enc (32768,2048), W_dec, b_enc, b_dec)"
+    notes: >-
+      TopK k=50, d_model 2048 -> 32768 latents (16x). Plain torch .pt dicts — NOT SAELens
+      format; load with torch.load + a thin wrapper. Trained on Qwen3-1.7B-BASE. Siblings
+      (verified): 8B variants Qwen/SAE-Res-Qwen3-8B-Base-W64K-L0_100 @
+      f308c1df7c9746544f0af047fd00d6cf374627bd and ...-W64K-L0_50 @
+      9b7d647127c303dd371e5dbd992236bd9799b171 (36 layers, 65536 latents) if an 8B Qwen
+      target is ever needed. Uninspected lead: OpenMOSS-Team/Llama-Scope-2-Qwen3-1.7B @
+      ebc8c39de0c429e5f975df1b823fca066a1af338.
+  bluelightai_clt_qwen3_0_6b:
+    model: qwen3_0_6b
+    type: clt
+    hook: mlp
+    source: "BluelightAI cross-layer transcoder for Qwen3-0.6B-Base (circuit-tracer-compatible)"
+    repo: bluelightai/clt-qwen3-0.6b-base-20k   # verified 2026-08-04 via HfApi.model_info
+    revision: 5301dca1909eccac1ecedd3d58da60097056db8f
+    layers: all               # 28 MLP layers (0-27), 20480 features/layer, JumpReLU, L0≈115
+    subfolder_pattern: "W_enc_<L>/W_dec_<L> shards + config.yaml (circuit-tracer CLT layout)"
+    notes: >-
+      Load: circuit_tracer ReplacementModel.from_pretrained("Qwen/Qwen3-0.6B-Base",
+      "bluelightai/clt-qwen3-0.6b-base-20k", dtype=torch.bfloat16). ~23% MLP-output variance
+      unexplained (README). CAVEAT: trained on the BASE checkpoint; the panel model is the
+      post-trained Qwen/Qwen3-0.6B — for a post-trained match prefer mwhanna_plt_qwen3_0_6b.
+      Sibling (verified): bluelightai/clt-qwen3-1.7b-base-20k @
+      51d0f6977cc897e56e01f95789dd82f0771df626.
+  mwhanna_plt_qwen3_0_6b:
+    model: qwen3_0_6b
+    type: transcoder
+    hook: mlp
+    source: "mwhanna per-layer transcoders for POST-TRAINED Qwen/Qwen3-0.6B (circuit-tracer native)"
+    repo: mwhanna/qwen3-0.6b-transcoders-lowl0   # verified 2026-08-04; named in circuit-tracer README
+    revision: 28aefe686c09e9bc1a862195b51e145f10868d87
+    layers: all               # 28 MLP layers (0-27); hooks mlp.hook_in -> mlp.hook_out
+    subfolder_pattern: "layer_<L>.safetensors + config.yaml + features/ (autointerp bins)"
+    notes: >-
+      The ONLY Qwen3 dictionary trained on the post-trained reasoning checkpoint the panel
+      actually uses (config model_name = Qwen/Qwen3-0.6B) — no base->post-trained confound.
+      Load by passing the repo id as circuit-tracer's transcoder_set. Sibling (verified):
+      mwhanna/qwen3-1.7b-transcoders-lowl0 @ 9c1b17dfb156d82162ccd2cb7f047ac7f3d3585d.
+  chanin_qwen25_sae:
+    model: qwen25_coder_7b     # NB: trained on Qwen2.5-7B-Instruct (chat), NOT the Coder — nearest-family spot-check only
+    type: sae
+    hook: resid_post
+    source: "David Chanin Qwen2.5-7B-Instruct layer-20 SAEs (Matryoshka + JumpReLU variants)"
+    repo: chanind/qwen2.5-7B-it-layer-20-saes   # verified 2026-08-04 via HfApi.model_info
+    revision: db8c88b400e36e603d0563abcf8d289e5eff5687
+    layers: [20]              # single layer, hook blocks.20.hook_resid_post
+    subfolder_pattern: "pile/matryoshka/k-100 etc. (stock SAELens: SAE.from_pretrained(repo, sae_id))"
+    notes: >-
+      d_in 3584 -> 65536 latents. Stock SAELens. Single-layer, single-model spot check —
+      the coder models proper remain dictionary-less.
+
+  # ---- DS-R1-Distill-Llama-8B: Llama Scope R1 ---------------------------------
+  llama_scope_r1_res:
+    model: ds_r1_llama_8b
+    type: sae
+    hook: resid_post
+    source: "Llama Scope R1 (OpenMOSS), via Neuronpedia (set 'llamascope-openr1-res-32k')"
+    repo: OpenMOSS-Team/Llama-Scope-R1-Distill   # verified 2026-08-03 via HfApi.model_info
+    revision: 61c4dd06f3edeafbe608ea288badf30fed60cc8f
+    layers: all               # 32 SAEs (L0R..L31R), x3 data-mixture variants
+    subfolder_pattern: "<variant>/L<layer>R/{config.json,sae_weights.safetensors}"
+    variants:                 # data mixtures (SlimPajama vs OpenR1-Math-220k reasoning tokens)
+      - 0-Slimpajama-800M-OpenR1-Math-220k
+      - 400M-Slimpajama-400M-OpenR1-Math-220k
+      - 800M-Slimpajama-0-OpenR1-Math-220k
+    notes: >-
+      Per-layer cfg: hook_point blocks.<L>.hook_resid_post, d_model 4096, expansion x8
+      -> 32768 latents, act_fn jumprelu (top_k 50 field present). OpenMOSS
+      Language-Model-SAEs format (config.json + sae_weights.safetensors) — NOT stock
+      SAELens; load via OpenMOSS lm_sae tooling or manual safetensors read.
+
+  # ---- DS-R1-Distill-Qwen-1.5B: EleutherAI research k-SAE ---------------------
+  eleuther_r1_qwen_1_5b_ksae:
+    model: ds_r1_qwen_1_5b
+    type: sae
+    hook: mlp_out             # MLP-output hookpoints ONLY — no residual-stream SAEs in this release
+    source: "EleutherAI TopK k-SAE suite (sparsify/sae library), trained on EleutherAI/fineweb-edu-dedup-10b"
+    repo: EleutherAI/sae-DeepSeek-R1-Distill-Qwen-1.5B-65k   # verified 2026-08-03 via HfApi.model_info
+    revision: 9fbac1d1e4bce938c2955e78cca1b94b96d359a6
+    layers: all               # 28 hookpoints: layers.0.mlp .. layers.27.mlp
+    subfolder_pattern: "layers.<L>.mlp/{cfg.json,sae.safetensors}"
+    notes: >-
+      TopK k=32, 65536 latents (x64 expansion, d_in 1536), ctx 2048. Load with sparsify:
+      Sae.load_from_hub("EleutherAI/sae-DeepSeek-R1-Distill-Qwen-1.5B-65k", hookpoint="layers.15.mlp").
+
+  # ---- DS-R1-Distill-Llama-8B: AIRI SAE-Reasoning (arXiv:2503.18878) ----------
+  airi_sae_reasoning:
+    model: ds_r1_llama_8b
+    type: sae
+    hook: resid_post
+    source: "AIRI SAE-Reasoning (Galichin et al., arXiv:2503.18878; github.com/AIRI-Institute/SAE-Reasoning)"
+    repo: andreuka18/deepseek-r1-distill-llama-8b-lmsys-openthoughts   # verified 2026-08-03; linked from AIRI GitHub README
+    revision: 854cf34aae8bd35259666a9316e30a755d6558d8
+    layers: [19]              # single SAE, sae_id "blocks.19.hook_resid_post"
+    subfolder_pattern: "blocks.19.hook_resid_post/{cfg.json,sae_weights.safetensors,sparsity.safetensors}"
+    notes: >-
+      SAELens format: SAE.from_pretrained(repo, "blocks.19.hook_resid_post"). Standard ReLU arch,
+      d_sae 65536 (x16), 819.2M tokens of LMSYS-Chat + OpenThoughts reasoning mix. Companion repos
+      by same first author (verified to exist, not named in the GitHub README):
+      andreuka18/sae-deepseek-r1-llama-8b @ 0927600e7b8f0ea325effc0462d86d6653785c3b (layers 12-23,
+      sae_id "model.layers.<L>") and andreuka18/sae-slimpajama-deepseek-r1-llama-8b @
+      ab6a6c53b0d5e6771cee74626beb2269450dba1b (layer 19 only, SlimPajama control).
+      NOTE: despite the paper's tooling supporting Qwen-1.5B/7B distills, NO AIRI Qwen SAE
+      artifacts were released — R1-Distill-Qwen models remain dictionary-less from AIRI.
+
+  # ---- Gemma-2-2B: Gemma Scope (E3 PoC + smoke) -------------------------------
+  # All Gemma Scope dictionary repos are UNgated even though google/gemma-2-2b itself is
+  # gated (accept the license on the HF account behind HF_HOME before an E3 run).
+  gemma_scope_res:
+    model: gemma2_2b
+    type: sae
+    hook: resid_post
+    source: "Gemma Scope (Lieberum et al., arXiv:2408.05147)"
+    repo: google/gemma-scope-2b-pt-res   # verified 2026-08-04 via HfApi.model_info
+    revision: fd571b47c1c64851e9b1989792367b9babb4af63
+    layers: all               # 26 layers (0-25) at width_16k AND width_65k; wider at select layers
+    subfolder_pattern: "layer_<L>/width_<W>/average_l0_<X>/params.npz (npz: W_enc, W_dec, b_enc, b_dec, threshold — JumpReLU)"
+    notes: >-
+      Load via np.load(hf_hub_download(...)) or SAELens gemma-scope releases. Extra widths:
+      32k/131k/262k/524k at layer 12, 1m at layers 5/12/19.
+  gemma_scope_tc:
+    model: gemma2_2b
+    type: transcoder
+    hook: mlp
+    source: "Gemma Scope per-layer MLP transcoders (google release)"
+    repo: google/gemma-scope-2b-pt-transcoders   # verified 2026-08-04 via HfApi.model_info
+    revision: 50eec2f25c60545a9a74c1c3a26a0afdd0b4b872
+    layers: all               # 26 layers, width_16k, multiple L0 variants per layer
+    subfolder_pattern: "layer_<L>/width_16k/average_l0_<X>/params.npz"
+    notes: >-
+      Underlying weights for the circuit-tracer shim below; cite/pin BOTH when E3 runs.
+  gemma_circuit_tracer:
+    model: gemma2_2b
+    type: transcoder
+    hook: mlp
+    source: "mntss circuit-tracer transcoder_set shim over google/gemma-scope-2b-pt-transcoders"
+    repo: mntss/gemma-scope-transcoders   # verified 2026-08-04 via HfApi.model_info
+    revision: 9250a2d4860ce5ed5c96c14d5882b7d8162809a3
+    layers: all               # 26 layers, width_16k, one lowest-L0 variant per layer
+    subfolder_pattern: "config + features shim; weights STREAM from the google repo at graph time — pin both shas in the run manifest"
+    notes: >-
+      E3-PoC entry point: ReplacementModel.from_pretrained('google/gemma-2-2b',
+      'mntss/gemma-scope-transcoders'). CLT alternatives (verified): mntss/clt-gemma-2-2b-426k @
+      b1e9ab376d07c90d780bf20b5fb1a0c89bd0f5e7 and mntss/clt-gemma-2-2b-2.5M @
+      637a2f8b950fca8623e57658721484c28c166ca5 (check 48 GB fit before the 2.5M).
+      Unverified lead for the 8B panel model: facebook/crv-8b-instruct-transcoders
+      (circuit-tracer README; TopK PLTs for Llama-3.1-8B-INSTRUCT — would avoid the
+      base->Instruct confound for E3-on-8B; verify via model_info before use).
+
+# Models with NO public dictionary (train from scratch, ~10–30 GPU-hr/SAE/layer; CLT on
+# 8B ~130–150 H100-hr — needs the 8×H100 allocation, NOT the A6000s):
+#   ds_r1_qwen_7b, smollm3_3b, phi35_mini, qwen25_coder_7b, ds_coder_6_7b
+train_from_scratch:
+  activation_tokens: 400_000_000   # ~300–500M per residual-stream SAE (planning figure)
+  arch_candidates: [batchtopk, jumprelu, matryoshka]   # Matryoshka for feature disentanglement
+  note: "Only train when a committed experiment needs a model without a pretrained dictionary."

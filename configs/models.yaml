@@ -1,0 +1,88 @@
+# Model panel — reused from Papers 2–3 so feature/attention measures plug into the
+# existing accuracy / ISF / HCI tables. Referenced by key from experiment configs.
+#
+# `revision` is null until the weights are first downloaded — then PIN the resolved
+# commit hash here (do NOT invent one). `has_dictionary` records whether a *pretrained*
+# SAE/transcoder exists (the feasibility crux, ../CLAUDE.md §1); details in dictionaries.yaml.
+# hf_id values are the canonical repo ids; confirm base-vs-instruct per model before a run.
+
+models:
+  # ---- reasoning-tuned (track human difficulty, ρ=0.30–0.47) --------------------
+  ds_r1_qwen_7b:
+    hf_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    revision: 916b56a44061fd5cd7d6a8fb632557ed4f724f60   # pinned 2026-08-04 (HfApi, main)
+    family: reasoning
+    has_dictionary: false     # no public SAE/transcoder → train from scratch
+  ds_r1_qwen_1_5b:
+    hf_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+    revision: ad9f0ae0864d7fbcd1cd905e3c6c5b069cc8b562   # pinned 2026-08-04 (HfApi, main)
+    family: reasoning
+    has_dictionary: partial   # research k-SAE (EleutherAI) exists; confirm before use
+  smollm3_3b:
+    hf_id: HuggingFaceTB/SmolLM3-3B
+    revision: a07cc9a04f16550a088caea529712d1d335b0ac1   # pinned 2026-08-04 (HfApi, main)
+    family: reasoning
+    has_dictionary: false
+  qwen3_0_6b:
+    hf_id: Qwen/Qwen3-0.6B
+    revision: c1899de289a04d12100db370d81485cdf75e47ca   # pinned 2026-08-04 (HfApi, main)
+    family: reasoning
+    has_dictionary: true      # BluelightAI CLTs (circuit-tracer-compatible); Qwen-Scope covers 1.7B/8B
+
+  # ---- instruct ---------------------------------------------------------------
+  llama31_8b_instruct:
+    hf_id: meta-llama/Llama-3.1-8B-Instruct
+    revision: 0e9e39f249a16976918f6564b8830bc894c89659   # pinned 2026-08-04 (HfApi, main)
+    gated: true            # accept license on the HF account behind HF_HOME before download
+    family: instruct
+    has_dictionary: true      # Llama Scope (SAEs + transcoders); EleutherAI; Goodfire l19 (Instruct)
+    primary: true             # lowest-friction entry point for E1/E2
+  phi35_mini:
+    hf_id: microsoft/Phi-3.5-mini-instruct
+    revision: 2fe192450127e6a83f7441aef6e3ca586c338b77   # pinned 2026-08-04 (HfApi, main)
+    family: instruct
+    has_dictionary: false
+
+  # ---- coder ------------------------------------------------------------------
+  qwen25_coder_7b:
+    hf_id: Qwen/Qwen2.5-Coder-7B-Instruct
+    revision: c03e6d358207e414f1eca0bb1891e29f1db0e242   # pinned 2026-08-04 (HfApi, main)
+    family: coder
+    has_dictionary: false
+  ds_coder_6_7b:
+    hf_id: deepseek-ai/deepseek-coder-6.7b-instruct
+    revision: e5d64addd26a6a1db0f9b863abf6ee3141936807   # pinned 2026-08-04 (HfApi, main)
+    family: coder
+    has_dictionary: false
+  # optional extra coder model mentioned in the menu:
+  # codellama_7b: { hf_id: meta-llama/CodeLlama-7b-hf, family: coder, has_dictionary: false }
+
+  # ---- adjacent (dictionaries exist; useful for method transfer / E3) ----------
+  ds_r1_llama_8b:
+    hf_id: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+    revision: 6a6f4aa4197940add57724a7707d069478df56b1   # pinned 2026-08-04 (HfApi, main)
+    family: reasoning
+    has_dictionary: true      # Llama Scope R1 (OpenMOSS)
+    in_panel: false
+  qwen3_1_7b:
+    hf_id: Qwen/Qwen3-1.7B
+    revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e   # pinned 2026-08-04 (HfApi, main)
+    family: reasoning
+    has_dictionary: true      # Qwen-Scope covers 1.7B/8B (NOT 0.6B — 0.6B has only the BluelightAI CLT)
+    in_panel: false
+
+  # ---- small models supported by circuit-tracer (E3 PoC + smoke) ---------------
+  gemma2_2b:
+    hf_id: google/gemma-2-2b
+    revision: c5ebcd40d208330abc697524c919956e692655cf   # pinned 2026-08-04 (HfApi, main)
+    gated: true            # accept license on the HF account behind HF_HOME before download
+    family: small
+    has_dictionary: true      # Gemma Scope; circuit-tracer-supported
+    circuit_tracer_supported: true
+  llama32_1b:
+    hf_id: meta-llama/Llama-3.2-1B
+    revision: 4e20de362430cd3b72f300e6b0f18e50e7166e08   # pinned 2026-08-04 (HfApi, main)
+    gated: true            # accept license on the HF account behind HF_HOME before download
+    family: small
+    has_dictionary: partial
+    circuit_tracer_supported: true

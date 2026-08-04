@@ -1,0 +1,3 @@
+[submodule "nla/vendor/nla-repo"]
+	path = nla/vendor/nla-repo
+	url = https://github.com/kitft/natural_language_autoencoders.git

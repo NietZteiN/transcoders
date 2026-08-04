@@ -1,0 +1,43 @@
+# Base experiment config. Experiment configs set `extends: _base.yaml` and override.
+# The loader (src/configs.py) deep-merges this under the experiment, then resolves the
+# `model` / `dictionary` string keys against ../models.yaml and ../dictionaries.yaml.
+
+seed: 20260724               # recorded in every run manifest; keep fixed across a study
+dtype: bfloat16              # CUDA compute dtype (CPU always runs fp32; actual dtype recorded in manifest)
+
+# Which layers to read. LAYER CONVENTION (matches Llama Scope / Gemma Scope numbering):
+# "layer l" = resid_post of 0-indexed block l = hidden_states[l+1]; valid 0..n_layers-1.
+# `sweep` = a small set of depths (mid + two-thirds); or an explicit list, e.g. [12, 16, 20].
+layers: sweep
+
+# Token positions to collect activations at:
+#   identifiers | dispatcher  -> resolved from per-snippet CHARACTER SPANS at runtime
+#                                (tokenizer-specific; see src/data.py schema)
+#   code | all | last         -> positional modes, no spans needed
+token_positions: last
+
+positions:
+  min_resolution_rate: 0.95  # span modes: fail the run if mean span->token resolution drops below this
+
+# Activation cache output, relative to the PROJECT ROOT (src/configs.py PROJECT_ROOT —
+# never CWD). One collision-proof subdir per run_id.
+output:
+  activations_dir: data/activations
+  format: safetensors        # per-snippet tensors + manifest.jsonl (no silent .pt fallback)
+
+batching:
+  max_seq_len: 2048          # spans truncated away count as unresolved
+
+# Cheap validation path (../CLAUDE.md §4: smoke-test before the real run). `--smoke`
+# swaps in this tiny model + toy stimuli. It exercises the identifier-SPAN resolution
+# path (not just last-token) so the E1-critical machinery is validated without a download.
+smoke:
+  model_hf_id: sshleifer/tiny-gpt2
+  n_items: 4
+  layers: [0, 1]             # block indices for the 2-block tiny model
+  token_positions: identifiers
+
+compute_config: ../compute.yaml
+models_registry: ../models.yaml
+dictionaries_registry: ../dictionaries.yaml
+data_config: ../data.yaml

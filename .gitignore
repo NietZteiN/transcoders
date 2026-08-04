@@ -1,0 +1,15 @@
+# NLA checkpoints (~25 GB) and other large nla artifacts — see README for how to fetch
+nla/data/
+
+# Third-party paper PDFs (see papers/REFERENCES.md and papers/references.bib)
+papers/*.pdf
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Agent working notes (contain internal hostnames/paths; repo is public)
+.claude/
+CLAUDE.md
+CLAUDE_SCRATCHPAD.md
