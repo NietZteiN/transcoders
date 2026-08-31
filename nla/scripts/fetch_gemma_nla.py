@@ -8,7 +8,8 @@ and is worth having, but the pair is ungated so it is not required.
 import sys, time
 from huggingface_hub import snapshot_download
 
-REPOS = ["kitft/nla-gemma3-12b-L32-av", "kitft/nla-gemma3-12b-L32-ar"]
+REPOS = ["kitft/nla-gemma3-12b-L32-av", "kitft/nla-gemma3-12b-L32-ar",
+         "google/gemma-3-12b-it"]
 MAX_TRIES = 40
 
 for repo in REPOS:

@@ -36,24 +36,72 @@ _NLA_ROOT = _HERE.parent
 sys.path.insert(0, str(_NLA_ROOT / "vendor" / "nla-repo"))
 sys.path.insert(0, str(_HERE))
 
-EXAMPLE = _NLA_ROOT / "vendor" / "nla-repo" / "examples" / "qwen7b_layer20_step4200.txt"
+EXAMPLES_DIR = _NLA_ROOT / "vendor" / "nla-repo" / "examples"
 
-# Verbatim from the example file, sections 1 and 2.
-USER_MESSAGE = "What are you hiding?"
-ASSISTANT_REPLY = (
-    "As Qwen, created by Alibaba Cloud, I don't have the ability to hide anything "
-    "or withhold information. My purpose is to provide helpful and accurate "
-    "responses to your questions to the best of my knowledge and based on the "
-    "information available to me. If you have any specific questions or need "
-    "assistance with something, feel free to ask!"
-)
-TARGET_MODEL = "Qwen/Qwen2.5-7B-Instruct"
-LAYER_INDEX = 20
-EXPECTED_N_TOKENS = 101
-# The reference sequence ends with the assistant's end-of-turn token (its position 100
-# is token='<|im_end|>'): reply = 66 text tokens + <|im_end|> = 67. extract_chat appends
-# the reply verbatim, so the end-of-turn must be part of the reply string we pass.
-END_OF_TURN = "<|im_end|>"
+# One worked example ships per released NLA pair. Everything the gate needs is IN the file —
+# host model, layer, d_model, the training-set Var(v_nrm), the prompt, the reply and the
+# per-token table — so the constants are parsed from it rather than transcribed. Transcribing a
+# 150-token reply by hand is exactly the kind of silent error this gate exists to catch.
+REFERENCES = {
+    "qwen7b":   "qwen7b_layer20_step4200.txt",
+    "gemma12b": "gemma12b_layer32_step4000.txt",
+    "gemma27b": "gemma27b_layer41_step6000.txt",
+    "llama70b": "llama70b_layer53_step2424.txt",
+}
+
+# The end-of-turn token is part of the reply for some hosts and absent for others, and
+# `extract_chat` appends the reply verbatim — so it must match the reference's own last row.
+# Qwen ends on '<|im_end|>', Llama on '<|eot_id|>', and the Gemma references stop mid-sentence
+# with no end-of-turn at all. Derived below from the last row rather than hardcoded.
+END_OF_TURN_TOKENS = {"<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|end_of_text|>"}
+
+
+def load_reference(key: str) -> dict:
+    """Everything the gate needs for one host, read out of its worked example."""
+    import ast
+    path = EXAMPLES_DIR / REFERENCES[key]
+    t = path.read_text()
+
+    def grab(pattern, cast=str, flags=0):
+        m = re.search(pattern, t, flags)
+        if not m:
+            raise SystemExit(f"{path.name}: could not parse /{pattern}/")
+        return cast(m.group(1))
+
+    user = ast.literal_eval(grab(r"User message:\s*('.*?')\s*$", flags=re.M))
+    # Section 2 holds the temp-0 reply as a single Python string literal on its own line.
+    body = t.split("2. BASE MODEL REPLY", 1)[1]
+    # The reply is one Python string literal on its own line — single-quoted in the Qwen and
+    # Gemma-12B references, double-quoted in the Gemma-27B and Llama ones. Accept either, and
+    # let literal_eval handle the escapes rather than unescaping by hand.
+    reply_line = next(
+        (l.strip() for l in body.splitlines()
+         if len(l.strip()) > 1 and l.strip()[0] in "'\"" and l.strip()[-1] == l.strip()[0]),
+        None)
+    if reply_line is None:
+        raise SystemExit(f"{path.name}: could not locate the reply literal in section 2")
+    reply = ast.literal_eval(reply_line)
+
+    rows = parse_expected(path)
+    last_tok = rows[-1]["token"]
+    eot = last_tok if last_tok in END_OF_TURN_TOKENS else ""
+
+    return {
+        "key": key, "path": path,
+        "model": grab(r"Extraction model:\s*(\S+)"),
+        "layer": grab(r"layer (\d+) residual stream", int),
+        "d_model": grab(r"d_model:\s*(\d+)", int),
+        # Denominator of fve_nrm = 1 - mse_nrm / Var. Varies enormously by host: 0.7335 for
+        # Qwen L20 but 0.0302 for Gemma-3-12B L32, ~24x lower. At low variance cos compresses
+        # toward 0.99 for everything and stops discriminating, which is why the Gemma reference
+        # says fve_nrm is the informative metric there. mse_nrm = 2(1 - cos), so fve is a pure
+        # function of cos given this constant — no re-capture is ever needed to switch metrics.
+        # [\d.]+ would swallow the sentence's closing full stop ("0.0302." -> ValueError),
+        # so the decimal is matched explicitly.
+        "var_v_nrm": grab(r"mse_nrm\s*/\s*(\d+\.\d+)", float),
+        "user_message": user, "assistant_reply": reply,
+        "end_of_turn": eot, "expected_n_tokens": len(rows), "rows": rows,
+    }
 
 # "[  0]  PROMPT  token='<|im_start|>'  ||v||=235.7  mse_nrm=1.962  cos=0.019  fve_nrm=-1.674"
 ROW_RE = re.compile(
@@ -62,7 +110,7 @@ ROW_RE = re.compile(
 )
 
 
-def parse_expected(path: Path = EXAMPLE) -> list[dict]:
+def parse_expected(path: Path) -> list[dict]:
     rows = []
     for line in path.read_text().splitlines():
         m = ROW_RE.match(line)
@@ -81,17 +129,18 @@ def parse_expected(path: Path = EXAMPLE) -> list[dict]:
     return rows
 
 
-def stage_a(device: str, tol_rel: float) -> int:
+def stage_a(device: str, tol_rel: float, ref: dict) -> int:
     """Extraction-only check: our ||v|| vs the reference's, per token."""
     from extract import ActivationExtractor  # noqa: E402
 
-    expected = parse_expected()
-    assert len(expected) == EXPECTED_N_TOKENS, (
-        f"parsed {len(expected)} rows from the example, expected {EXPECTED_N_TOKENS}"
-    )
+    expected = ref["rows"]
+    print(f"reference: {ref['path'].name}\n  host {ref['model']} · layer {ref['layer']} · "
+          f"d_model {ref['d_model']} · Var(v_nrm) {ref['var_v_nrm']} · "
+          f"{ref['expected_n_tokens']} tokens · end-of-turn {ref['end_of_turn']!r}")
 
-    ex = ActivationExtractor(TARGET_MODEL, LAYER_INDEX, device=device)
-    res = ex.extract_chat(USER_MESSAGE, ASSISTANT_REPLY + END_OF_TURN, text_id="worked_example")
+    ex = ActivationExtractor(ref["model"], ref["layer"], device=device)
+    res = ex.extract_chat(ref["user_message"], ref["assistant_reply"] + ref["end_of_turn"],
+                          text_id="worked_example")
     ex.close()
 
     n_got, n_exp = len(res.positions), len(expected)
@@ -208,6 +257,9 @@ def stage_b(device: str, sglang_url: str, tol_cos: float) -> int:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--stage", choices=["A", "B"], default="A")
+    p.add_argument("--model", choices=sorted(REFERENCES), default="qwen7b",
+                   help="which released pair to gate. Default qwen7b preserves the original "
+                        "behaviour; gemma12b is the 2026-08-31 port target.")
     p.add_argument("--device", default="cuda")
     p.add_argument("--sglang-url", default="http://localhost:30000")
     p.add_argument("--tol-rel", type=float, default=0.02,
@@ -219,7 +271,9 @@ def main() -> int:
                         "the AV decode path adds its own nondeterminism even at "
                         "temp=0 (batching, kernel selection).")
     a = p.parse_args()
-    return stage_a(a.device, a.tol_rel) if a.stage == "A" else stage_b(a.device, a.sglang_url, a.tol_cos)
+    ref = load_reference(a.model)
+    return (stage_a(a.device, a.tol_rel, ref) if a.stage == "A"
+            else stage_b(a.device, a.sglang_url, a.tol_cos, ref))
 
 
 if __name__ == "__main__":
