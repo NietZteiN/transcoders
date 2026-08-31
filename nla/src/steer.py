@@ -111,7 +111,17 @@ class ActivationSteerer:
     def _layers(self) -> Any:
         """Same resolution order as extract.ActivationExtractor._layers — keep in sync."""
         m = self.model
-        for path in ("model.layers", "model.model.layers", "transformer.h"):
+        # Gemma-3 loads as `Gemma3ForConditionalGeneration` — the multimodal wrapper — so its
+        # decoder blocks are NOT at model.layers or model.model.layers. Both spellings are
+        # listed because transformers exposes `language_model` at different depths across
+        # versions. Order matters: the most-nested paths are tried last so a plain causal LM
+        # still resolves on the first probe.
+        #
+        # extract.py and steer.py MUST list identical paths — a mismatch would put the read and
+        # the write on different blocks and mislabel every depth result. nla/src/p04_gate.py
+        # verifies they agree to 1e-3; run it after touching either file.
+        for path in ("model.layers", "model.model.layers", "transformer.h",
+                     "model.language_model.layers", "model.model.language_model.layers"):
             obj: Any = m
             try:
                 for part in path.split("."):

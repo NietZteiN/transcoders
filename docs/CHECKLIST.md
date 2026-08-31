@@ -205,12 +205,55 @@ successor** because it is the only host with *both* an NLA pair and a dictionary
 would put Instruments 2 and 3 on one model for the first time and make E7 triangulation stronger
 than it was. Llama-3.3-70B is an 8×H100 job, not an A6000 one.
 
+**What the reference file already tells us** *(found 2026-08-31, before any GPU time)*
+
+The vendored repo ships a worked example per released pair — `examples/gemma12b_layer32_step4000.txt`,
+1,297 lines — so **G0 is available for Gemma exactly as it was for Qwen**, and in the same
+`ROW_RE` format `nla/src/replicate_example.py` already parses. It supplies everything the gate
+needs: prompt `'What are you hiding?'` (14 tokens), the temp-0 reply (150 tokens), full sequence
+**164**, and per-token `||v||` / `mse_nrm` / `cos` / `fve_nrm`. Porting `replicate_example.py` is
+parameterisation, not a rewrite — it currently hardcodes `TARGET_MODEL`, `LAYER_INDEX`,
+`EXPECTED_N_TOKENS`, `END_OF_TURN` and the prompt/reply strings.
+
+**⚠ The layer is low-variance, and this is the one finding that changes the analysis.** The
+reference file warns that Gemma-3-12B at L32 has **Var(v_nrm) = 0.0302** — "activations are highly
+concentrated around their mean. mse_nrm/cos compress into a narrow range (everything looks ~0.99
+cos). **fve_nrm is the informative metric here.**"
+
+`rt_cos` is the Qwen programme's self-check throughout (validated band 0.70–0.96, observed medians
+0.860–0.886) and appears in **23 source files**. On Gemma L32 it would sit near 0.99 for everything
+and lose its discriminative range. **But it does not need re-plumbing:** verified against the
+reference's own rows, `mse_nrm = 2(1 − cos)` and `fve_nrm = 1 − mse_nrm / Var(v_nrm)`, both to
+rounding. **`fve_nrm` is a pure function of `rt_cos` given one constant per model**, so capture
+stays exactly as it is and only the reported metric changes — a derived column at analysis time,
+not 23 files. `transfer_gate.py` already documents the same relation for Qwen.
+
+That is also an upside for continuity: the authors call `fve_nrm` "the cross-model comparable
+metric", so a Gemma port can report a number comparable with the Qwen results in a way `rt_cos`
+never was.
+
+**Two further facts from the same file.** Injection rescales every vector to **L2 = 80,000**
+(`injection_scale` in `nla_meta.yaml`) against raw norms of ~80k–700k — Gemma's activation scale is
+three orders of magnitude above Qwen's, consistent with the √d convention. And the **first four
+positions are OOD**: datagen used `min_position=50`, so system-prompt positions were never trained
+on. Our stimuli read at `last_prompt`, far past 50, so this does not bite — but it rules out any
+early-position analysis.
+
 **G-A · Instrument validation** *(blocks everything below)*
-- [ ] Download `google/gemma-3-12b-it` + the AV/AR pair into `HF_HOME`; record shas.
-- [ ] **Fix `_layers()` in BOTH `nla/src/extract.py` and `nla/src/steer.py`** — Gemma-3 loads as
-      `Gemma3ForConditionalGeneration`, so decoder layers sit at `model.language_model.layers`;
-      the current probe order `("model.layers", "model.model.layers", "transformer.h")` will
-      **fail to find them**. The two files must stay in sync.
+- [x] Download the AV/AR pair — **ungated**, fetched 2026-08-31 via `nla/scripts/fetch_gemma_nla.py`
+      (a retry loop: unauthenticated Hub requests are rate-limited and the first attempt died on a
+      504 + ReadTimeout ~9.8 GB in; `snapshot_download` resumes).
+- [ ] **BLOCKED — `google/gemma-3-12b-it` is `gated: manual`** (HTTP 401 on `config.json`). Needs a
+      HuggingFace account to accept Google's terms, then `HF_TOKEN` exported or written to
+      `$HF_HOME/token`. No token exists on this host. Gemma-2-2B (the mandated circuit-tracer smoke
+      model) is almost certainly gated the same way, so one token covers both. **Do not work around
+      this** — an ungated mirror routes around the licence.
+- [x] **Fixed `_layers()` in BOTH `nla/src/extract.py` and `nla/src/steer.py`** (2026-08-31) — — Gemma-3 loads as
+      both now probe `model.language_model.layers` and `model.model.language_model.layers` in
+      addition to the original three. Both spellings, because transformers exposes
+      `language_model` at different depths across versions; most-nested last so a plain causal LM
+      still resolves first. Verified byte-identical between the two files, with a comment in each
+      saying they must stay that way.
 - [ ] Run the **layer-indexing gate** (`nla/src/p04_gate.py --layers …`) at L32 — it verifies the
       read site and write site are the same block, which is exactly what the two-file edit risks.
 - [ ] **G0 replication gate** on the native pair. *This is the decision point.* A failure here is a
@@ -259,6 +302,7 @@ Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUD
 ---
 
 ## Changelog
+- **2026-08-31b** — Phase G started: `_layers()` fixed in both files, AV/AR pair downloaded (ungated). **Blocked on an HF token** — `google/gemma-3-12b-it` is `gated: manual`. Reference-file findings recorded: **G0 is available for Gemma**, and the L32 layer is **low-variance (Var = 0.0302)** so `rt_cos` compresses to ~0.99 — but `fve_nrm` is a pure function of `rt_cos` given that constant, so the fix is a derived column, not 23 files.
 - **2026-08-31** — **Phase G added**: model-constraint port to Gemma. No Chinese-origin models going forward removes `Qwen2.5-7B-Instruct` (the Instrument-2 host) and five of seven panel models. Instrument 3 is barely affected — `Llama-3.1-8B` is the only panel model with both SAEs and transcoders, and `Gemma-2-2B` (circuit-tracer native) still serves the mandated smoke test. Instrument 2 ports rather than dies: three of four released NLA pairs are non-Chinese, and **Gemma-3-12B-IT is the recommended successor** as the only host with both an NLA pair and a dictionary suite. Two integration facts recorded before any GPU time: `_layers()` will fail on `Gemma3ForConditionalGeneration`, and Gemma normalises embeddings by √d. Estimate ≈ 1 week, gated on G0.
 - **2026-08-03** — Phase-0 progress recorded: scaffold tree + provenance/seed/gpu discipline **done**; `environment.yml` written + extraction harness built and smoke-tested **[~]** (env not created; batching/GQA/sink-tracking + `apply_dictionary` pending); annotated the remaining boxes with their landing zones (`configs/data.yaml`, `configs/dictionaries.yaml`). Status → Phase 0 in progress.
 - **2026-08-07c** — N9 exploratory addendum: confabulation rate measured (Python prior), planning refuted against a null.
