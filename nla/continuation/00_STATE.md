@@ -1,4 +1,4 @@
-# 00 — Where the NLA research stands (as of 2026-08-28)
+# 00 — Where the NLA research stands (as of 2026-08-31)
 
 *Every number below is quoted from a dated entry in `transcoders/log/nla-harness/` or a report in
 `transcoders/reports/`. Nothing here is re-derived. Where two sources disagree, the later dated
@@ -6,9 +6,62 @@ entry wins.*
 
 **The canonical long-form write-up is
 [`transcoders/reports/2026-08-26_nla-master/REPORT.md`](../../reports/2026-08-26_nla-master/REPORT.md)**
-— ~900 lines, written to be read cold, with a table of contents. Read it if you need depth on
-anything below. It is also published as an artifact (private) at
-`https://claude.ai/code/artifact/9c19873d-2cb3-441b-8fff-5420731f7fa3`.
+— ~1,490 lines, written to be read cold, with a table of contents. Read it if you need depth on
+anything below. **§15 (Phase 9) and Part IV were rewritten 2026-08-31** and supersede this file
+wherever they disagree. The published artifact at
+`https://claude.ai/code/artifact/9c19873d-2cb3-441b-8fff-5420731f7fa3` is the **pre-Phase-9**
+version and has not been redeployed.
+
+---
+
+## What changed since this file was written (2026-08-28 → 08-31)
+
+**Phase 0 is fully decided, and one apparatus explanation was added and closed.**
+
+| stage | verdict | the number |
+|---|---|---|
+| P0.1 | **HARD** | min cos(Δ₂₀, Δ_ℓ) = 0.277 vs a frozen 0.50 |
+| P0.2 | **NOT CHANNEL-LIMITED** | V4 +0.0833 → −0.3333; contrast −0.4166 vs +0.10; V1 parse rate → 0.100 |
+| P0.3 | **SITE LIVE** | [20,20] moves −1.434 / −1.658 vs a 0.794 seed spread |
+| **P0.4** | **NOT DEPTH-LIMITED** *(new)* | the oracle at layer 13 nets **exactly 0.0000** — 5 recovered, 5 damaged — parse rate 0.833 intact |
+
+→ **licensing row 4**, *the site works but belief-shaped writes do not*. Three pre-registered ways
+of blaming the apparatus are now closed.
+
+**A measurement floor was found, and it bounds part of this file.** Greedy decoding does not
+reproduce per item: **0.85–0.90 agreement between two runs on the same physical GPU**, unmoved by
+deterministic kernels or a doubled generation budget, cause unidentified. **Reads are bit-exact**
+(120/120, max |Δ| = 0.0), so every read-side number here is unaffected; the floor applies to graded
+generations only. Separately, at the banked 1,100-token budget the parse rate is 0.8833, so ~12% of
+items in every absolute accuracy were scored wrong for **not finishing** rather than for being
+wrong.
+
+**The read side explains the whole item-level null ledger in one sentence.** At `last_prompt` — the
+site of every item-level read in this programme — a linear probe on the raw residual stream beats
+reply length by **+0.010** (+0.04–0.06 per tier against each tier's own baseline). B4, B5, N11, N13
+and P0.4 were all measured where a linear decoder ties a token count.
+
+**Corrections to figures quoted below.**
+- **N13's answer-entropy positive is AUC 0.840 held out**, not 0.869. Both reported figures scored
+  entropy against the plurality of the *same* eight samples; `banked_correct` is an independent
+  greedy run and gives 0.8400 / 0.8428. The positive stands; the "hardening strengthens it" claim
+  does not (+0.003 held out).
+- **N10b is population-only.** Split-half reliability of the 14-read instrument is 0.581 / 0.613 /
+  0.523 against a pre-stated 0.70 — it separates crowds and **cannot rank a single file**.
+- **B6 is settled judge-free:** `rt_cos` adds nothing over reply length (LRT p = 0.27, ΔCV-AUC
+  −0.0027, n = 512).
+- **B5 now has its ledger entry** (`log/nla-harness/2026-08-26_b5-composition.md`).
+
+**One route-specific positive, replicated and then deflated three times.** The residual stream beats
+reply length under dispatcher indirection (L2/L3) and not under renaming — replicated on independent
+draws at Δ = +0.3195 against a frozen +0.15 bar. It then resolved into **a signal about dispatcher
+count largely predictable from how repetitive the source text is**: +0.0245 over static code shape,
++0.0647 over size-plus-repetition, and fully present at the prompt (position adds −0.0307). It is
+the first internal correlate of the documented r = −0.196 dispatcher-complexity effect, and it is
+**not** semantic understanding of control flow.
+
+**Terminology fix:** L2 in this corpus is **dispatcher indirection**, not switch-based control-flow
+flattening — 0 of 70 items contain a `switch`.
 
 ---
 
@@ -48,7 +101,7 @@ how much text the verbalizer produced and does not predict correctness.
 | N11-c | does a read track stated deception? | not established | 3/10 vs 2/24, Fisher p = 0.138 |
 | **N12 / B4** | can a written-back belief recover accuracy? | **✗ refuted** | V1 0.550 = V3 0.550, p = 1.00, across a 16× α range |
 | N13 | can we detect the model is torn? | **null** | AUC 0.491 / 0.442 / 0.408; instability ≡ describability at r = −0.958 |
-| N13 *(free)* | does answer instability predict correctness? | **✓ positive** | **AUC 0.869** — better than any internal signal |
+| N13 *(free)* | does answer instability predict correctness? | **✓ positive** | **AUC 0.840 held out** (0.869 was same-sample) — better than any internal signal |
 | B0 | does attention steering have a transform boundary? | **not established** | +7.02 at seed 1000 → **sign flips** at seed 2000 |
 | B1 | does the NLA read a sibling model? | **✗ refuted** | rt_cos 0.694 vs host 0.864; loss is **directional, not scale** |
 | B2 | does the stated belief beat a floor? | **unmeasurable** | only ~11 of 70 stimuli have a scorable true algorithm |

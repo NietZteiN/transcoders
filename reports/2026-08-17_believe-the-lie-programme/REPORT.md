@@ -4,6 +4,20 @@
 *Subject: `Qwen2.5-7B-Instruct`, layer-20 residual. Instrument: `kitft/nla-qwen2.5-7b-L20-{av,ar}`,
 frozen released checkpoints. Seed 20260724 throughout.*
 
+> **⚠ Superseded in part — appended 2026-08-31, not part of the 2026-08-17 status.**
+> Two claims below no longer stand as written.
+> - **B0's family contrast (+7.02 [+2.00, +10.09]) did not replicate.** At a second seed (E5b,
+>   2026-08-26) the five-transform family average **flips sign** to +4.46 [+0.85, +7.09], and four
+>   of five transforms reverse. What survives is the single transform `arith_rewriting`, negative
+>   at both seeds (−8.22, −5.65). The "currently being extended from one model to three"
+>   framing, and the FSE recommendation built on the family contrast, are withdrawn pending a
+>   third seed. See `log/nla-harness/2026-08-26_e5b-seed-instability.md`.
+> - **"Where this leaves the paper" is out of date.** A pre-registered triage (2026-08-28 to
+>   08-31) established that the causal failure is not the injection channel, not a dead site and
+>   not the wrong depth, and the read-side programme showed that at the site every item-level read
+>   was taken a linear probe on the residual stream ties a token count. The current statement of
+>   record is §15 and Part IV of `reports/2026-08-26_nla-master/REPORT.md`.
+
 | | |
 |---|---|
 | research questions (B0–B6) | **7** |

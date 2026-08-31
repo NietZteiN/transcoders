@@ -22,7 +22,7 @@ suggested it.
 Four findings, each with the mechanism that produced it:
 
 1. **Prompt framing accounts for a large share of apparent "malice" reads.** On identical
-   malware and identical activations, generic threat vocabulary appears **2.5× more often**
+   malware under two different prompts, generic threat vocabulary appears **2.5× more often**
    under a security-framed preamble than a neutral one (17.5% vs 6.9%). A single-arm design
    would have reported that as evidence about the residual stream.
 2. **Item-level capability identification fails its own null.** On 183 real malware samples,
@@ -89,7 +89,7 @@ removed). Reads at code tokens and over the model's own reasoning.
 | specific capability named | 15.5% | 11.4% |
 | item-level any-capability | 87.4% | 70.5% |
 
-On identical code and identical activations, the security preamble more than doubles generic
+On identical code under two prompts, the security preamble more than doubles generic *(corrected 2026-08-31: "identical activations" was false — the two arms are separate captures with 0 of 14 read positions overlapping, so the preamble moves the model's state and its trace as well as the read)*
 threat vocabulary. The two-tier split earned its keep: the *specific* tier moved 1.36× where the
 generic tier moved 2.5×, which is exactly the separation it was designed to have.
 
@@ -213,7 +213,7 @@ was 3.0%.
 
 ## 5. What this programme leaves behind
 
-**Tools, all judge-free and unit-tested (64 tests):**
+**Tools, all judge-free and unit-tested (86 Python tests + 3 JS regression tests; corrected 2026-08-31 from "64"):**
 
 | | |
 |---|---|

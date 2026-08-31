@@ -96,7 +96,7 @@ neutral — same task, same behaviours asked about, every threat word removed.
 | generic threat vocabulary | **17.5%** | **6.9%** |
 | specific capability named | 15.5% | 11.4% |
 
-Identical code, identical activations, **2.5× more threat talk** just from framing. Had we run
+Identical *code* under two prompts, **2.5× more threat talk** just from framing. *(Corrected 2026-08-31: the arms are separate captures — the malware-browser builder verifies 0 of 14 read positions overlap — so a different preamble moves the state and the trace, not only the words in the read. The original phrasing "identical activations" was false.)* Had we run
 one arm, we'd have reported the prompt's own words as evidence about the model's mind.
 
 **Result 2 — it can't tell you *which* malware.** 87.4% of samples had a read naming a malicious
@@ -303,7 +303,7 @@ quarantined malware samples; 179 matched benign controls; four new obfuscation t
 **Tools:** an activation write-hook verified inert at zero strength and exact at the target
 position; a five-way steering-vector ladder with the leakage guard in the type signature; a
 judge-free grader with a surface-confound diagnostic; and matched-control construction that
-holds length, appearance and API surface fixed. 64 tests passing.
+holds length, appearance and API surface fixed. 86 Python tests passing *(corrected 2026-08-31; plus 3 JS regression tests)*.
 
 **Safety:** the malware corpus is quarantined — archives stay encrypted, extraction is in-memory
 only, nothing is ever written to an import path, and a static lint proves no execution primitive
