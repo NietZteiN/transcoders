@@ -63,16 +63,22 @@
 - [13. Phase 7 — Believe the Lie: the paper-shaped programme (Aug 15–17)](#13-phase-7--believe-the-lie-the-paper-shaped-programme-aug-1517)
 - [14. Phase 8 — Unification, and the seed shock (Aug 16, Aug 26)](#14-phase-8--unification-and-the-seed-shock-aug-16-aug-26)
   - [The seed shock (Aug 26) — B0 does not replicate](#the-seed-shock-aug-26--b0-does-not-replicate)
+- [15. Phase 9 — The steering triage and the read-side programme (Aug 27–31)](#15-phase-9--the-steering-triage-and-the-read-side-programme-aug-2731)
+  - [15.1 A naming collision, resolved](#151-a-naming-collision-resolved)
+  - [15.2 The triage — P0.1 to P0.4](#152-the-triage--p01-to-p04)
+  - [15.3 The reproducibility floor, and what it costs](#153-the-reproducibility-floor-and-what-it-costs)
+  - [15.4 The read side — the prompt is worth a token count](#154-the-read-side--the-prompt-is-worth-a-token-count)
+  - [15.5 The ladder, and three deflations](#155-the-ladder-and-three-deflations)
 
 **Part IV — What it all means**
 
-- [15. The ledger](#15-the-ledger)
-- [16. The single pattern behind every result](#16-the-single-pattern-behind-every-result)
-- [17. Fourteen ways a result died here](#17-fourteen-ways-a-result-died-here)
-- [18. What survives, and is worth keeping](#18-what-survives-and-is-worth-keeping)
-- [19. Where it stands, and what to do next](#19-where-it-stands-and-what-to-do-next)
-- [20. Caveats every headline number inherits](#20-caveats-every-headline-number-inherits)
-- [21. Map — where everything lives](#21-map--where-everything-lives)
+- [16. The ledger](#16-the-ledger)
+- [17. The single pattern behind every result](#17-the-single-pattern-behind-every-result)
+- [18. Nineteen ways a result died here](#18-nineteen-ways-a-result-died-here)
+- [19. What survives, and is worth keeping](#19-what-survives-and-is-worth-keeping)
+- [20. Where it stands, and what to do next](#20-where-it-stands-and-what-to-do-next)
+- [21. Caveats every headline number inherits](#21-caveats-every-headline-number-inherits)
+- [22. Map — where everything lives](#22-map--where-everything-lives)
 
 ---
 
@@ -92,6 +98,18 @@ was reproduced by a matched control. The one positive is population-level (malic
 contrastive difference vector that needs no autoencoder at all. And on 2026-08-26 the fallback
 result the programme had retreated to (B0, a boundary condition on attention steering) **failed to
 replicate at a second seed**, with the family average flipping sign.
+
+Five days in late August closed the remaining question and sharpened the conclusion. A
+pre-registered triage established that the causal failure is **not** the injection channel, **not**
+a dead site, and **not** the wrong depth — the oracle, written at the most coherent depth in the
+network, nets **exactly 0.0000: five items recovered, five damaged**. The read side then explained
+the whole ledger of item-level nulls in one sentence: **at the position every one of them was
+measured, a linear probe on the raw residual stream ties a token count** (+0.010 over reply
+length). One route-specific effect survived pre-registered replication and then deflated three
+times under its own controls, ending as *a signal about dispatcher count largely predictable from
+how repetitive the text is*. Along the way the measurement itself was found to be unreliable:
+**greedy decoding does not reproduce per item on a fixed GPU** (0.85–0.90 agreement), which
+produced a false finding and then caught it. Reads, by contrast, are bit-exact.
 
 ---
 
@@ -601,6 +619,12 @@ times, against 83 of 223 right items. On this corpus, being wrong and being unst
 whether it is right, at AUC 0.843 → 0.869 after hardening.** That is better than any internal signal
 in the programme, and it is purely behavioural.
 
+> **Corrected 2026-08-31 (§15.4).** Both figures scored entropy against `modal_correct` — the
+> plurality of the *same* eight samples the entropy was computed from. A held-out label was always
+> available (`banked_correct`, from a separate greedy run) and gives **0.8400 → 0.8428**. The
+> positive stands at ≈ **0.84**; what does not survive is the *sharpening* claim, which is +0.003
+> held out rather than +0.026.
+
 **Follow-on — the mid-trace dip is real and is not length.** `rt_cos` is U-shaped across the trace
 while read length declines *monotonically* (683 → 633) and `act_norm` declines monotonically too —
 the final bin is the lowest-magnitude yet the second-most-faithful. **Describability and magnitude
@@ -968,9 +992,199 @@ five-transform family average is not.**
 
 ---
 
+## 15. Phase 9 — The steering triage and the read-side programme (Aug 27–31)
+
+Everything above was written on 2026-08-26. What follows is five days of work that closed the
+causal arm's open question, discovered a measurement floor that invalidated one of its own
+findings, and then walked a promising positive down three levels of deflation. It is the only
+phase in this report where the *method* is the main output.
+
+### 15.1 A naming collision, resolved
+
+The ledger calls this work **"Phase 0"** — a triage numbered P0.1–P0.4. This report already used
+"Phase 0" for §6, *does the released instrument work here*. They are unrelated. In this report the
+triage is Phase 9; in `log/nla-harness/` it is Phase 0. Both names are load-bearing in their own
+documents, so neither is renamed — but a reader moving between them needs to know.
+
+### 15.2 The triage — P0.1 to P0.4
+
+**Why it existed.** B4 and B5's negatives were being read as *"there is no item-level belief to
+edit"*. That reading was **not licensed**, because a second explanation predicts identical tables:
+the injection channel cannot deliver anything, whatever it carries. The evidence sat inside B4's
+own battery — **V4, the oracle that has seen the clean program, gained only +0.083, less than
+adding one sentence to the prompt**. If ground truth cannot clear a prompt sentence through this
+channel, no direction was going to, and the gate measured *delivery* rather than *belief*.
+
+Four experiments, each pre-registered with a frozen decision rule before any run.
+
+| stage | question | verdict | the number |
+|---|---|---|---|
+| **P0.1** | is the single-layer constraint hard? | **HARD** | min cos(Δ₂₀, Δ_ℓ) over ℓ ∈ [21,27] = **0.277** vs a frozen 0.50 |
+| **P0.2** | is the channel the bottleneck? | **NOT CHANNEL-LIMITED** | V4 goes **+0.0833 → −0.3333** when the write widens to every reply position; contrast **−0.4166** against a frozen +0.10 |
+| **P0.3** | is layer 20 a live site for *any* intervention? | **SITE LIVE** | [20,20] attention steering moves P@1 by **−1.434 / −1.658** against a **0.794** baseline seed spread |
+| **P0.4** | is the instrument at the wrong *depth*? | **NOT DEPTH-LIMITED** | V4 at layer 13 − layer 20 = **−0.0667** [−0.1833, **+0.0500**] against a frozen +0.10 |
+
+**P0.2's negative is stronger than "no delivery".** Widening the write drove V1's parse rate to
+**0.100** (from 0.917) and V4's to 0.383. The channel does not under-deliver — it **over**-delivers
+and destroys generation before it can carry content.
+
+**P0.4 is the sharpest number in the triage.** P0.1 had found cross-item coherence peaking at
+**layer 13 (0.543)** while magnitude peaks at layer 20 (0.459), the two directions nearly
+orthogonal at cos 0.21 — so "the instrument is at the wrong depth" was a live explanation.
+Writing the **oracle** at layer 13 nets **exactly 0.0000: five items recovered, five damaged**,
+with parse rate 0.833 intact. Perfect information about the true semantics, written at the most
+coherent depth in the network, produces a pure shuffle. Unlike P0.2 this is *indifference*, not
+destruction — and the CI's upper bound of +0.05 sits below the frozen +0.10, so the effect is
+**excluded**, not merely unfound.
+
+A gate ran first that the codebase had asserted in comments since `steer.py` was written and never
+tested: that `ActivationExtractor` and `ActivationSteerer` hook the same decoder block. Residual
+**8.5e-08 / 8.8e-08 / 4.3e-08** at layers 6/13/20, one position written, nothing else moved.
+
+**What the triage establishes.** Three pre-registered ways of blaming the *apparatus* are now
+closed: the channel is not the bottleneck, the site is not inert, the depth is not wrong. What
+remains is the reading the programme had been circling — **there is no item-level belief at this
+site to edit** — now bought with 2,880 rows and a frozen rule rather than an argument.
+
+### 15.3 The reproducibility floor, and what it costs
+
+An unplanned finding, and it invalidated one of this phase's own results before the week was out.
+
+**Greedy bf16 decoding does not reproduce per item.** Two runs of an identical command, on the
+**same physical GPU** (UUID-verified), same seed, disagree on **6 of 60** items — agreement
+**0.90** unsteered, **0.85** steered — while cross-node agreement (0.95) is *no worse*. The cause
+is run-to-run, not card-to-card. The seed never touches this path: greedy decoding draws no RNG.
+
+It survives three interventions:
+
+| intervention | same-card agreement |
+|---|---|
+| default | 0.900 / 0.850 |
+| `use_deterministic_algorithms` + pinned cuBLAS/cuDNN/SDPA | 0.8333 / 0.9000 |
+| generation budget 1100 → 2048 | 0.8833 / 0.8833 |
+
+Deterministic kernels applied cleanly — zero fallback warnings — and moved nothing. The cause
+**remains unidentified**, and after three failed explanations the honest position is to quote
+0.85–0.90 and stop looking.
+
+**Two things bound the damage.** Reads are **bit-exact** — 120/120 identical, max |Δ| = 0.0, within
+and across processes — so `rt_cos`, `act_norm`, the P0.1 layer curves and the 14,619-row unified
+table carry **no** reproducibility caveat. The floor applies only to graded generations: B4's
+McNemar gate, B5's cells, P0.3's P@1 tables, P0.4's own primary. And raising the budget to 2048
+took parse rate **0.8833 → 1.0000** at unchanged accuracy, so **12% of items in every banked
+accuracy were scored wrong for not finishing rather than for being wrong** — a separate problem
+from reproducibility, and one worth fixing in future runs.
+
+**The floor immediately produced a false finding and then caught it.** A per-layer probe reported
+correctness decodability rising monotonically to the final layer. A second label draw — differing
+on 8 of 60 items, exactly the floor — produced the *opposite* curve, argmax L27 versus L13 at
+near-identical mean AUC. **The level replicates; the shape does not.** The fix was free: **ten
+cheap label draws beat one careful grade**, turning an argmax that flipped between runs into curves
+correlating 0.79–0.94 across independent halves.
+
+### 15.4 The read side — the prompt is worth a token count
+
+With the causal arm closed, the question becomes what a *read* is worth, measured against the dense
+baseline this project's charter requires.
+
+**The headline is a negative and it is the most useful result of the phase.** At `last_prompt` —
+the site of **every** item-level read in this programme, B4's vectors, P0.1, P0.2, P0.4 included —
+a linear probe on the raw residual stream predicts correctness at ρ = **+0.3730** against a
+reply-length baseline of **+0.3626**. An advantage of **+0.010**. Measured per tier with each
+tier's own baseline, the residual stream adds **+0.04 to +0.06**, clean or obfuscated.
+
+*Every item-level read in this programme was taken at a position where a linear decoder ties a
+token count.* That single sentence explains B4, B5, N11, N13 and P0.4 without invoking beliefs.
+
+Three further results, all pre-registered:
+
+- **`rt_cos` adds nothing over reply length** (LRT p = 0.27, ΔCV-AUC −0.0027, n = 512), settling
+  B6 judge-free. Its solo AUC of 0.654 is the describability confound, now measured. **Reply length
+  alone reaches AUC 0.306 — inverted** — beating every internal signal but answer entropy.
+- **N10b is population-only.** Split-half reliability of the 14-read instrument is
+  **0.581 / 0.613 / 0.523** against a pre-stated 0.70, falling to 0.477 on hard negatives. The
+  programme's one positive separates crowds and **cannot rank a single file** — and the best
+  population discriminator (`mm_mean`) is the *least* reliable per item.
+- **The signal near the answer is readout, not prediction.** `rt_cos` at the `answer_line` does beat
+  length (q = 8e-05) and correctness is decodable there at ρ = 0.5702 — but a pre-registered
+  sceptical branch decided it: **|len(answer) − len(truth)|**, knowable only if you know what the
+  model will emit, reads **+0.3650 at the prompt — *below* its own +0.3767 truth-length baseline** —
+  and +0.5299 at the answer line. The prompt carries no information about what will actually be
+  emitted, so the answer-line signal is a corollary of the answer having been decided.
+- **N13's standing baseline was re-estimated and survives.** A flag raised mid-week — that its
+  answer-entropy positive shared a same-sample dependency — was **half wrong and is withdrawn**.
+  The reported 0.843/0.869 do use `modal_correct`, the plurality of the same eight samples; but
+  entropy comes from eight sampled generations while `banked_correct` comes from an independent
+  greedy run, so a held-out estimate always existed: **0.8400 / 0.8428**. Inflation is **0.026**,
+  not the 0.18 that a five-shared-draw instability measure suffered. What does fail is the claim
+  that hardening *strengthened* the signal — held out it moves +0.003, so most of the gain lived in
+  the label.
+- **Mid-reasoning is empty**, on five independent measures across two tiers. And the explanation is
+  mundane: probing the mid-reply region for a target *known* to be encoded at the prompt
+  (`n_dispatcher_spans`, ρ = +0.8879) gives **+0.1773**. Activations at reply position *t* are about
+  the reply; the KV cache holds the prompt without re-representing it.
+
+**Depth for a read is a non-question.** A per-layer probe on L0-vs-L1b sits at ceiling in **28 of
+28 layers** — **AUC 0.9953 at layer 0**, because adversarial renaming changes the literal tokens
+and the contrast is separable at the embedding layer. The pre-registration had named this
+UNINFORMATIVE branch in advance. It retires a whole family of "a probe detects obfuscation"
+experiments that would have looked successful.
+
+### 15.5 The ladder, and three deflations
+
+The one place the residual stream did beat its baseline, and what happened to it.
+
+**Discovery.** Probing all five tiers, each against **its own** length baseline, selection-free
+(mean ρ over 28 layers, no argmax):
+
+| route | tiers | beats own length baseline |
+|---|---|---|
+| clean | L0 | −0.0593 |
+| **atom** | L1, L1b | **−0.2006** |
+| **relational** | L2, L3 | **+0.1167** |
+
+L1 is the extreme case: ρ = **+0.0224** — nothing at any depth on nonsense-renamed code.
+
+**It replicated.** Five independent draws, rule frozen on the *route contrast* rather than
+per-tier bars: **Δ = +0.3195** against a bar of **+0.15**, within 0.002 of the discovery's +0.3178.
+L2 +0.1253 (p = 0.005, split-half positive on 100% of splits); L3 weaker at +0.0418.
+
+**Then it deflated, three times, each by a control named in advance.**
+
+1. **Not state tracking.** Against a baseline that already knows reply length *and* the code's
+   static shape, the residual stream adds **+0.0245** — bar +0.10. Static features alone predict
+   correctness at ρ = +0.2989 on L2 and only +0.1198 on L1b, which has no dispatcher spans at all.
+   The route contrast is fully explained: L2 carries an extra *static* predictor and the residual
+   stream encodes it.
+2. **Not deep structure.** Probing directly for `n_dispatcher_spans` gives ρ = **+0.8842**, +0.3413
+   beyond code size — the model *does* represent how many dispatcher sites a program has. But five
+   surface counts of the source text (max token frequency, distinct/total tokens, duplicated lines,
+   max line frequency) reach **+0.8346 on their own**, and the residual stream adds **+0.0647** over
+   size-plus-repetition. **Under the bar.**
+3. **Not a computed state.** Position × depth on L2 returns `answer_line` − `last_prompt` =
+   **−0.0307**: the signal is fully present at the prompt and gains nothing from reasoning. On L1b
+   the pattern is the opposite — nothing at the prompt, signal only once the answer is committed.
+
+**What survives, stated at the precision the data supports.** The residual stream carries a signal
+about dispatcher count that is **largely predictable from how repetitive the text is**. It is a
+surface-statistical representation. It is the first internal correlate in this programme of a
+documented behavioural effect — the dispatcher-complexity result **r = −0.196 (q = 3.1×10⁻²³)** in
+Papers 2–3 — and it is **not** semantic understanding of control flow. Describing it as the latter
+would be exactly the interpretability illusion this project's charter warns about.
+
+**Two failure signatures, fully characterised.** Atom route: nothing readable until the answer is
+decided; the residual stream is redundant with a token count. Relational route: static structure
+readable immediately; nothing added by reasoning. **Neither involves item-level state.**
+
+**One correction of record.** L2 in this corpus is **dispatcher indirection**, not switch-based
+control-flow flattening — 0 of 70 items contain a `switch`. Earlier ledger entries in this phase
+said flattening.
+
+---
+
 # Part IV — What it all means
 
-## 15. The ledger
+## 16. The ledger
 
 | # | experiment | question | verdict | the number that decided it |
 |---|---|---|---|---|
@@ -989,14 +1203,23 @@ five-transform family average is not.**
 | N11-c | does an internal read track stated deception? | **not established** | 3/10 vs 2/24, Fisher p = 0.138 |
 | N12 / B4 | can a written-back belief recover accuracy? | **✗ refuted** | V1 0.550 = V3 0.550, p = 1.00, at every α over a 16× range |
 | N13 | can we detect that the model is torn? | **null** | AUC 0.491 / 0.442 / 0.408; instability ≡ describability at r = −0.958 |
-| N13 | *(free)* does answer instability predict correctness? | **✓ positive** | **AUC 0.869** |
+| N13 | *(free)* does answer instability predict correctness? | **✓ positive** | **AUC 0.840 held out** (the reported 0.869 used a same-sample label; see §15.4) |
 | B0 | does attention steering have a transform boundary? | **not established (2026-08-26)** | family Δ +7.02 at seed 1000 → sign flip at seed 2000 |
 | B1 | does the NLA read a sibling model? | **✗ refuted** | `rt_cos` 0.694 vs host 0.864; loss is directional, not scale |
 | B2 | does the stated belief beat a floor? | **unmeasurable** | only ~11 of 70 stimuli have a scorable true algorithm |
 | B5 | do the two levers compose? | **null** | gate passed (\|Δ\| 0.0104 < 0.02); every contrast's CI spans zero; collision check +0.10 |
-| B6 | does read↔CoT agreement predict correctness? | **not adjudicated** | same judge instrument null as HT13 |
+| B6 | does read↔CoT agreement predict correctness? | **✗ settled judge-free** | `rt_cos` adds nothing over reply length: LRT p = 0.27, ΔCV-AUC −0.0027, n = 512 |
+| **P0.1** | is the single-layer constraint hard? | **HARD** | min cos(Δ₂₀, Δ_ℓ) = **0.277** vs a frozen 0.50; coherence peaks at L13, magnitude at L20 |
+| **P0.2** | is the injection channel the bottleneck? | **NOT CHANNEL-LIMITED** | V4 **+0.0833 → −0.3333** at `all_reply`; parse rate collapses to **0.100** (V1) |
+| **P0.3** | is layer 20 a live site for any intervention? | **SITE LIVE** | [20,20] moves P@1 **−1.434 / −1.658** vs a 0.794 seed spread |
+| **P0.4** | is the instrument at the wrong depth? | **NOT DEPTH-LIMITED** | oracle at L13 nets **0.0000** (5 recovered, 5 damaged); L13 − L20 = −0.0667 [−0.1833, +0.0500] |
+| **P1b-a** | does the residual stream beat reply length at the read site? | **✗ no** | **+0.010** at `last_prompt`; +0.04–0.06 per tier against each tier's own baseline |
+| **P1b-b** | can N10b's score rank a single file? | **✗ population only** | split-half reliability **0.581 / 0.613 / 0.523** vs a pre-stated 0.70 |
+| **P1b-c** | is depth better for a *read*? | **UNINFORMATIVE** | tier probe at ceiling in **28/28** layers — AUC **0.9953 at layer 0** |
+| **P1b-d** | does the residual stream beat length on the relational route? | **✓ replicated, then deflated** | Δ = **+0.3195** vs a frozen +0.15 bar → but adds only **+0.0245** over static shape and **+0.0647** over repetition |
+| **P1b-e** | is greedy decoding reproducible per item? | **✗ no** | **0.85–0.90** on a fixed GPU; unmoved by deterministic kernels or a doubled budget. Reads **are** bit-exact (120/120) |
 
-## 16. The single pattern behind every result
+## 17. The single pattern behind every result
 
 **It is about resolution.**
 
@@ -1017,7 +1240,16 @@ NLA direction is indistinguishable from a random one.
 clean-minus-obfuscated direction at cosine −0.001, indistinguishable from a random vector. The
 geometry and its controls are in **§12.7**.
 
-## 17. Fourteen ways a result died here
+**Phase 9 tested the pattern's one apparent exception and it held.** The relational route looked
+like item-level content in the residual stream, survived a pre-registered replication, and then
+resolved into *how repetitive the source text is* — a theme-level property that happens, on that
+one tier, to predict item-level outcomes. Restated at full strength: **theme-level content is
+represented (malice, complexity, language); item-level content is not (which capability, which
+algorithm, whether this run was misled, how this dispatcher resolves).** And Phase 9 added the
+reason the nulls were so uniform: they were all measured at a position where a linear decoder ties
+a token count.
+
+## 18. Nineteen ways a result died here
 
 The most transferable output of this programme is not a finding. It is this list.
 
@@ -1032,12 +1264,17 @@ The most transferable output of this programme is not a finding. It is this list
 8. **Any large perturbation helps.** A random norm-matched direction gains +0.083. Why the bar is V3.
 9. **Small-sample optimism.** 3/3 → 3/10 · an n = 34 interim → an exact tie at n = 60 · B5's composition estimates (+1.81, +2.33) with every interval spanning zero · B0's family average flipping sign at a second seed · N13's instability edge p .029 → .234 under a hardened label · and N13's own manipulation check, +0.103 at 19 pairs → **−0.011** at 54. **Six results in this programme looked right before their own controls landed.**
 10. **Seed variance.** A five-transform family average flips sign between draws.
+11. **Decoding nondeterminism.** Two runs of an identical command on the *same GPU* disagree on 6 of 60 items. It flipped a per-layer curve's argmax from L27 to L13 at near-identical mean AUC — **the level replicates, the shape does not**. Curve-shape claims at n = 60 need a second label draw before they are reported.
+12. **Same-sample dependency.** Computing a predictor and its outcome label from the same generations inflates the estimate — 0.18 AUC for an instability measure built on five shared greedy draws. Held-out draws are the fix and are usually already on disk.
+13. **Argmax over a correlated family.** Taking the best of 28 layers and comparing it to a single-number baseline: **the max of 28 layers of pure noise averages +0.17–0.18**. A weak positive at L1b evaporated (p = 0.114) once the null was taken over the statistic actually claimed rather than over a fixed layer.
+14. **A baseline borrowed from the wrong condition.** A +0.1383 tier gap turned out to be a +0.1567 *baseline* gap: reply length predicts correctness far better on clean code (+0.4770) than on renamed code (+0.3203). Each condition needs its own baseline, not the neighbouring one's.
+15. **A ceiling nobody checked.** L0-vs-L1b is decodable at AUC 0.9953 *at the embedding layer*, so a probe "detecting obfuscation" measures token identity. An UNINFORMATIVE branch written into the pre-registration is what made this reportable rather than embarrassing.
 
 **Instrument and measurement failures**
-11. **Population separation ≠ item ranking.** AUC 0.757 with κ 0.049. Ship an AUC as evidence of a *sort key* only after an item-level reliability check.
-12. **A κ gate needs a companion discrimination check.** G3 failed because the second rater was *degenerate* (91% one label), not because two competent raters disagreed — a distinction κ alone does not surface.
-13. **The null must guard the deciding statistic**, not a descriptive trajectory beside it.
-14. **A frozen rule needs its estimator and its affordability checked against the data's group structure *before* it is frozen.** `(1|case)` is unusable for a predictor constant within case (singular fit / β = 0). `k ≥ 3` was undefined for 57% of items.
+16. **Population separation ≠ item ranking.** AUC 0.757 with κ 0.049. Ship an AUC as evidence of a *sort key* only after an item-level reliability check.
+17. **A κ gate needs a companion discrimination check.** G3 failed because the second rater was *degenerate* (91% one label), not because two competent raters disagreed — a distinction κ alone does not surface.
+18. **The null must guard the deciding statistic**, not a descriptive trajectory beside it.
+19. **A frozen rule needs its estimator and its affordability checked against the data's group structure *before* it is frozen.** `(1|case)` is unusable for a predictor constant within case (singular fit / β = 0). `k ≥ 3` was undefined for 57% of items.
 
 **Engineering failures that would have produced confidently wrong papers**
 - **142 snippet names collide across HumanEval and CruxEval**; three sites keyed on the bare name would have silently dropped or overwritten half the cross-dataset coupling set.
@@ -1057,11 +1294,11 @@ The most transferable output of this programme is not a finding. It is this list
 > at layout. Rendering to an image and looking is the only step that catches colliding labels,
 > missing tick marks, and silently overridden text colour.
 
-## 18. What survives, and is worth keeping
+## 19. What survives, and is worth keeping
 
 **Results**
 - **N10b**: theme-level malice is readable at **AUC ≈ 0.65** on unambiguous vocabulary (0.764 with the generic `payload` included), holding at 0.757 against hard negatives — while missing 29.5% of malware per item.
-- **Answer entropy predicts correctness at AUC 0.869** — behavioural, free, better than anything internal.
+- **Answer entropy predicts correctness at AUC 0.840** (held out against a separate greedy run; the reported 0.869 used the plurality of the same eight samples). Behavioural, free, and still better than anything internal. Its "hardening strengthens the signal" corollary does **not** survive: held out, hardening moves it 0.8400 → 0.8428.
 - **The confabulation profile**: 91% name a language, 37% wrongly, with a measured **Python prior**.
 - **`rt_cos` is a describability meter**, dissociable from magnitude (`act_norm` falls monotonically across the trace while `rt_cos` recovers).
 - **B1's clean negative**: cross-model transfer fails **directionally**, not by scale, on an architecturally identical sibling.
@@ -1069,6 +1306,15 @@ The most transferable output of this programme is not a finding. It is this list
 - **The behavioural replication**: non-monotone tier accuracy, L3 floor, out of the box.
 - **The belief direction is orthogonal to the obfuscation direction** — cosine −0.001, against V3↔V4's +0.702. A mechanical, reusable explanation for why the causal test tied.
 - **A composed-lever rig with a passing validation gate** — infrastructure the next question can reuse even though its first run was null.
+- **Phase 9's negative, which is the most reusable result here:** at the site every item-level read was taken, a linear probe on the raw residual stream **ties a token count** (+0.010 over reply length; +0.04–0.06 per tier). It explains B4, B5, N11, N13 and P0.4 at once.
+- **The two failure signatures**, fully characterised: atom route — nothing readable until the answer is decided; relational route — static structure readable immediately, nothing added by reasoning. Neither involves item-level state.
+- **Reads are bit-exact** (120/120, max |Δ| = 0.0), so every read-side measure in this report is free of the decoding floor.
+
+**Measurement tools built in Phase 9, and reusable beyond this project**
+- **Graded k/N labels.** Ten cheap repeated-greedy draws beat one careful grade: they turned a curve whose argmax flipped between runs into curves correlating 0.79–0.94 across independent halves. No sampling, no extra instrument.
+- **The reproducibility floor itself**, measured rather than assumed: 0.85–0.90 per item on a fixed GPU, robust to deterministic kernels and to a doubled generation budget.
+- **Per-tier baselines, selection-free statistics, and nulls over the statistic actually claimed** — the three controls that caught four of this phase's five attractive positives.
+- **`--baseline-only`, `--layer`, `--max-new-gen`, `--deterministic`** on the steering runner, and a layer-indexing gate that verifies read site == write site to 1e-3.
 
 **Instruments** — all judge-free; **86 Python unit tests** across five modules plus three JavaScript regression tests that run the *shipped* artifact code rather than a re-implementation
 `steer.py` (write hook, α = 0 byte-identical, ports across transformers major versions) ·
@@ -1085,12 +1331,25 @@ obfuscation transforms (`opaque_predicates` 680, `loop_transformation` 247, `ari
 `branch_inversion` 136) · **all nine transforms pass 360 execution-equivalence checks with 0
 failures** · the unified 14,619-reading table.
 
-## 19. Where it stands, and what to do next
+## 20. Where it stands, and what to do next
 
 **The paper as originally outlined does not have its spine.** B3 says the belief is not there to read
 at item resolution; B4 says the correction does not need the autoencoder; both ran without B2, the
 gate that was supposed to license them. As of 2026-08-26, the fallback paper — B0's transform
 boundary — has lost its headline to a second seed.
+
+**As of 2026-08-31 the paper has a different spine, and it is a methodological one.** Phase 9
+closed the three apparatus explanations, explained the null ledger in one measured sentence
+(*the read site ties a token count*), and walked the one surviving positive down three levels of
+control. The defensible paper is: **a pre-registered programme in which every internal measure
+that looked useful reduced to a surface statistic, with the ladder of controls as the
+contribution.** Five attractive positives, four deflated by cheap controls, one replicated and
+then correctly bounded. That is a more useful result than the mechanistic claim the study set out
+to make, and it is fully evidenced.
+
+**Items 3(a) and 5 below were completed in Phase 9** — `rt_cos` adds nothing over reply length
+(p = 0.27), and N10b's split-half reliability is 0.52–0.61, population-only. **Item 1's
+`arith_rewriting` claim still stands.** The rest are unchanged.
 
 Ranked by value per GPU-hour:
 
@@ -1126,20 +1385,25 @@ Ranked by value per GPU-hour:
 9. **Parked, with the design already done:** N1–N3 (HT9–HT11) — NLA↔CoT agreement, frozen-judge
    reranking, intervention validation; gates G1–G3 specified.
 
-> **The standing baseline.** Answer entropy predicts correctness at **AUC 0.869**, behaviourally and
-> for free. Any future claim that an *internal* measurement is useful has to clear it.
+> **The standing baseline.** Answer entropy predicts correctness at **AUC 0.840** held out,
+> behaviourally and for free — and reply length alone reaches CV-AUC 0.693. Any future claim that
+> an *internal* measurement is useful has to clear them. As of Phase 9 none does: the residual
+> stream at the read site adds **+0.010** over a token count.
 
-**Three housekeeping items.** The `nla-harness` thread README and `log/README.md` both still say
-*Last updated: 2026-08-14* and their entry tables stop before the 08-16/08-17/08-26 entries — the
-index no longer reflects the ledger. **B5 ran on 2026-08-26 and has no log entry at all** — its
-results live only in `data/nla/b5/cells_scored.json` and `reports/2026-08-26_full-results/RESULTS.md`,
-which breaks the ledger-is-source-of-truth rule; worse, the run persisted **no per-case rows**
-(`results/runs/` gained nothing, and the stage-4 aggregate regenerated the pre-existing RQ1 grid), so
-the six cells cannot be re-analysed from disk. And `CLAUDE_SCRATCHPAD.md` — which the project protocol requires be kept current — still reads *Last updated: 2026-08-03* and describes Phase-0 scaffold state. And the 2026-08-17 programme report's "currently running" and
-"where this leaves the paper" sections are now superseded by the seed result and should carry a
-pointer to it.
+**Housekeeping — status as of 2026-08-31.** *Closed:* both log indexes are current (64 entries);
+**B5's missing ledger entry is written** (`log/nla-harness/2026-08-26_b5-composition.md`, dated to
+its run) — though the underlying defect stands, since the run persisted **no per-case rows**
+(`results/runs/` gained nothing, and the stage-4 aggregate regenerated the pre-existing RQ1 grid),
+so its six cells still cannot be re-analysed from disk; and `CLAUDE_SCRATCHPAD.md` is current.
 
-## 20. Caveats every headline number inherits
+*Still open:* the 2026-08-17 programme report's "currently running" and "where this leaves the
+paper" sections remain superseded by the seed result and carry no pointer to it. Three wording
+errors survive in the 2026-08-14 reports — **"identical activations"** (false: the two framing arms
+are separate captures, 0/14 read positions overlap; say "identical *code*, two prompts"),
+**"64 tests"** (it is 86 Python plus 3 JS), and **"twice in one month"** for interim reversals (it
+is six). `nla/continuation/00_STATE.md` predates Phase 9 entirely and still quotes N13 at 0.869.
+
+## 21. Caveats every headline number inherits
 
 Collected in one place because they live scattered across a corpus doc, a plan file and five
 reports, and because several of them bound results quoted above.
@@ -1173,6 +1437,19 @@ reports, and because several of them bound results quoted above.
   population, so this describes what survived the filters, not the dataset.
 - **"Benign" currently means popular library code.** A different benign population could move N10b.
 
+**The measurement itself (added Phase 9)**
+- **Graded generations do not reproduce per item.** 0.85–0.90 agreement between two runs of an
+  identical command on a **fixed GPU**, unmoved by deterministic kernels or by doubling the
+  generation budget, cause unidentified. Every paired per-item table in this report inherits it:
+  B4's McNemar gate, B5's cells, P0.3's P@1 tables, P0.4's primary. **Reads do not** — they are
+  bit-exact, so `rt_cos`, `act_norm`, the layer curves and the unified table are unaffected.
+- **Absolute accuracies are biased low.** At the banked 1,100-token budget the parse rate is
+  **0.8833**, so ~12% of items were scored wrong for not finishing rather than for being wrong.
+  Raising the budget to 2,048 takes it to 1.0000 at unchanged accuracy. Paired contrasts are
+  unaffected (parse failures count as wrong in both arms); absolute numbers are not.
+- **Curve *shapes* at n = 60 are not identifiable.** Level replicates across label draws; argmax
+  does not (0 of 20 split-half agreements at `last_prompt`). Report levels, not peaks.
+
 **The stimulus sets**
 - **70 programs is a hard cap** on the steering corpus (`dataset_a` + `dataset_b` with usable L0/L1b
   pairs and ground truth). No amount of GPU time raises it — only a corpus change does.
@@ -1180,12 +1457,12 @@ reports, and because several of them bound results quoted above.
 - **N13's instability 2×2 rests on 14 pairs**, and its floor class is confounded with tier and token
   shape, which is why the interpretive weight sits on the shape-matched decoy-vs-meaningless pair.
 
-## 21. Map — where everything lives
+## 22. Map — where everything lives
 
 | what | where |
 |---|---|
 | **This report** | `transcoders/reports/2026-08-26_nla-master/REPORT.md` |
-| Ledger entries (30) | `transcoders/log/nla-harness/YYYY-MM-DD_*.md` |
+| Ledger entries (64) | `transcoders/log/nla-harness/YYYY-MM-DD_*.md` |
 | Thread summary + hypothesis ledger | `transcoders/log/nla-harness/README.md` · `transcoders/docs/CHECKLIST.md` |
 | Prior reports | `transcoders/reports/2026-08-{05,14,14,15,17}_*/REPORT.md` |
 | Worked examples + decompositions | `transcoders/reports/2026-08-26_full-results/RESULTS.md` |
@@ -1201,9 +1478,16 @@ reports, and because several of them bound results quoted above.
 | Malware read browser (redaction-verified) | `transcoders/reports/2026-08-15_n13-torn/malware_browser.html` |
 | Galleries | `data/nla/overnight/2026-08-04/GALLERY.md` · `data/nla/examples/EXAMPLES.md` · `data/nla/probe/probe_reads.json` |
 | Tests | `nla/tests/` — 86 Python tests + 3 JS regression tests against the shipped page |
+| **Phase 9 — triage** | `nla/src/{layer_rotation,p03_score,p0_summary,p0_verdict,p04_gate,p04_score}.py` · `data/nla/p0/` |
+| **Phase 9 — reproducibility floor** | `nla/src/{p04_repro_score,p04_read_repro,p04_read_repro_score}.py` · `data/nla/p0/p04/{repro,readrepro}/` |
+| **Phase 9 — read side** | `nla/src/{p1b_read_probe,p1b_position_depth,p1b_graded_labels,p1b_consensus_labels,p1b_readout_controls,p1b_answer_deviation,b6_length_vs_faithfulness,n10b_split_half}.py` |
+| **Phase 9 — the ladder** | `nla/src/{p1b_ladder,p1b_ladder_score,p1b_ladder_null,p1b_ladder_replication,p1b_l2_mechanism,p1b_span_probe,p1b_span_positions,p1b_behavioural}.py` · `data/nla/p0/p1b/` |
+| Cluster environment (juno) | `nla/scripts/juno_env.sh` · `nla/scripts/juno_build_envs.sh` |
 
 ---
 
-*Compiled 2026-08-26 from the primary ledger. Every number above is quoted from a dated log entry or
-report; nothing here is re-derived. Where two sources disagree, the later dated entry wins — which is
-why §14's seed result overrides the B0 headline in the 2026-08-17 report.*
+*Compiled 2026-08-26 from the primary ledger; **Phase 9 (§15) and the Part IV revisions added
+2026-08-31**. Every number above is quoted from a dated log entry or report; nothing here is
+re-derived. Where two sources disagree, the later dated entry wins — which is why §14's seed result
+overrides the B0 headline in the 2026-08-17 report, and why §15's held-out 0.840 overrides the
+0.869 quoted for N13 in the 2026-08-15 normalization entry.*
