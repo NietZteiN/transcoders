@@ -1,0 +1,449 @@
+"""B4 — the steering gate: does an NLA-derived direction beat a difference vector that uses no NLA?
+
+THE QUESTION. Everything measured in this programme so far is observational: read the
+representation, correlate with behaviour. This is the one experiment that makes the instrument
+causal. It injects a direction at layer 20 and asks whether accuracy on adversarially-renamed
+code recovers.
+
+**The bar is V3, not zero.** A steering result against "no steering" proves almost nothing —
+any large enough perturbation changes outputs. The pre-registered comparison is against a
+**contrastive task vector**, `mean(h_L0 − h_L1b)` over *other* programs, which needs no
+verbalizer, no reconstructor, and no explanation. If V3 matches V1 then the NLA is buying
+interpretability but not capability: a real and publishable finding, but a different paper, and
+one we should discover rather than a reviewer.
+
+VECTORS (all injected as `h ← h + α‖h‖Δ̂` at the last prompt token, layer 20):
+
+  V1  gloss        AR("…about fibfib") − AR("…about area, smooth")   natural-language steering
+  V2  read-edit    AR(edited AV read) − AR(AV read)                  the NLA paper's own protocol
+  V3  task vector  mean over OTHER items of (h_L0 − h_L1b)           NO NLA — the bar
+  V4  oracle       this item's own h_L0 − h_L1b                      ceiling, NOT deployable
+  R   random       norm-matched noise                                floor
+  F   foreign      another item's V1                                 same construction, wrong content
+  A   antipodal    −V1                                               must push the other way
+  P   prompt-only  a sentence naming the true semantics              the baseline that usually wins
+
+V1 and V2 differ in where the language comes from: V1 from the *stimulus's* own true/decoy
+identifier glosses, V2 from editing the *model's* verbalized read. V2 is the paper's protocol
+and depends on read quality; V1 does not and costs no AV call, so it runs on every item.
+
+**Balanced Δaccuracy, not flip rate.** A vector that makes the model shout the true algorithm at
+everything scores brilliantly on "wrong → right" flips. The statistic here is accuracy change
+across *all* items including those already correct, so a direction that destroys correct answers
+is penalised for it.
+
+Env `nla-mi`, one GPU. Reads (V2 only) need the AV server; everything else is forward passes.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import re
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+_HERE = Path(__file__).resolve().parent
+_NLA_ROOT = _HERE.parent
+_PROJ = _NLA_ROOT.parent
+sys.path.insert(0, str(_NLA_ROOT / "vendor" / "nla-repo"))
+sys.path.insert(0, str(_HERE))
+
+TARGET_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+LAYER_INDEX = 20
+SEED = 20260724
+# 1100, matching `overnight_capture.MAX_NEW_GEN`. The first smoke used 400 and every reply hit
+# the wall mid-reasoning (~1,500 chars) without ever emitting the answer line, so all three
+# baselines scored 0/3 on UNOBFUSCATED code — where the banked runs get 0.64-0.70. A truncation
+# budget that silently zeroes the control is indistinguishable from a broken model.
+MAX_NEW_GEN = 1100
+
+PREAMBLE = (
+    "You are an expert software engineer taking part in a code comprehension study. "
+    "You will be shown one function. Read it carefully, reason about what it computes "
+    "step by step, and then predict the exact output of the given call. Be precise "
+    "about values and types, and do not guess without tracing the computation. "
+    "Here is the function and the call to evaluate:\n\n"
+)
+ANSWER_RE = re.compile(r"Output:\s*(.+?)\s*$", re.M | re.I)
+
+
+def _norm(s) -> str:
+    """The established harness's normalization (overnight_capture.grade), reused verbatim so
+    accuracies here are comparable with the banked corpus rather than merely similar."""
+    return re.sub(r"[\s'\"`]", "", str(s)).lower()
+
+
+def graded(reply: str, truth) -> tuple[str | None, bool]:
+    m = ANSWER_RE.search(reply or "")
+    got = m.group(1).strip() if m else None
+    return got, (got is not None and _norm(got) == _norm(truth))
+
+
+def identifier_terms(code: str, spans) -> list[str]:
+    """Distinct identifier strings at the annotated spans — the material for a gloss."""
+    out, seen = [], set()
+    for a, b in (spans or []):
+        t = code[a:b].strip()
+        if t and t not in seen and len(t) > 1:
+            seen.add(t)
+            out.append(t)
+    return out[:8]
+
+
+def gloss(terms: list[str]) -> str:
+    """Same template the banked stimuli used: 'code whose identifiers are about X'."""
+    return "code whose identifiers are about " + (", ".join(terms) if terms else "unnamed values")
+
+
+def load_pairs(limit: int | None, rng: random.Random) -> list[dict]:
+    """L0/L1b pairs sharing a snippet_id, with ground truth on the L1b side."""
+    rows = []
+    for ds in ("dataset_a", "dataset_b"):
+        p = _PROJ / "data" / "stimuli" / ds / f"{ds}.jsonl"
+        if p.exists():
+            rows += [json.loads(l) for l in open(p) if l.strip()]
+    by: dict[str, dict] = {}
+    for r in rows:
+        by.setdefault(r["snippet_id"], {})[r["tier"]] = r
+
+    out = []
+    for sid, tiers in sorted(by.items()):
+        a, b = tiers.get("L0"), tiers.get("L1b")
+        if not a or not b or not b.get("expected_output"):
+            continue
+        call_l0, call_l1b = build_call(a), build_call(b)
+        if not call_l0 or not call_l1b:
+            continue
+        out.append({
+            "snippet_id": sid, "language": b.get("language"),
+            "call_l0": call_l0, "call_l1b": call_l1b,
+            "code_l0": a["code"], "code_l1b": b["code"],
+            "truth": b["expected_output"],
+            "gloss_true": gloss(identifier_terms(a["code"], a.get("identifier_spans"))),
+            "gloss_decoy": gloss(identifier_terms(b["code"], b.get("identifier_spans"))),
+            # Kept separately from the glosses for V2, which needs the individual terms in
+            # order to make exactly ONE substitution rather than swapping the whole gloss.
+            "terms_true": identifier_terms(a["code"], a.get("identifier_spans")),
+            "terms_decoy": identifier_terms(b["code"], b.get("identifier_spans")),
+            # The decoy->true correspondence, from the stimulus's own rename map (original ->
+            # decoy, so it is inverted at use). Pairing the two term lists BY INDEX instead
+            # looks reasonable and is wrong: adversarial renaming introduces more annotated
+            # identifier sites than the original has distinct terms (e.g. Python/100 is 3
+            # decoy terms against 1 true one), so the lists differ in length on 52 of 60
+            # pairs and any positional zip silently mismatches the rest.
+            "rename_map": (b.get("meta") or {}).get("rename_map") or {},
+            "id_spans_l1b": b.get("identifier_spans") or [],
+        })
+    rng.shuffle(out)
+    return out[:limit] if limit else out
+
+
+# Call construction is NOT re-derived here. `task_bank.build_call` already handles every case
+# this stimulus set contains — meta.input that is already a call string, meta.fn_name being the
+# ORIGINAL name on renamed tiers (mapped through rename_map), stale call heads validated against
+# the code, and rows whose head is a `myFunct` placeholder with no usable fn_name. Re-deriving it
+# produced `get_bounds(get_bounds(3))` for a program defining `make_a_pile`, and the model
+# answered `None` because the function named did not exist — clean-code accuracy 1/16 where the
+# banked runs get 0.64-0.70. 17% of L0 rows have an fn_name that is absent from their code.
+from task_bank import build_call  # noqa: E402
+
+
+def build_user(code: str, call: str) -> str:
+    """Exact wording of `overnight_capture.build_user`, so accuracies stay comparable."""
+    return (PREAMBLE + code +
+            f"\n\nWhat is the exact output of `{call}`? Reason step by step, "
+            f"then end with one line exactly of the form `Output: <value>`.")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--alphas", default="0.5,1.0,2.0")
+    ap.add_argument("--frozen-alpha", type=float, default=None,
+                    help="skip the sweep and run the full battery at this alpha")
+    ap.add_argument("--out-dir", default=str(_PROJ / "data/nla/n12"))
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--sglang-url", default="http://localhost:30004")
+    ap.add_argument("--with-v2", action="store_true",
+                    help="include V2, the minimal single-word-edit vector (no AV server needed "
+                         "— the edit is applied to the gloss, same text V1 reconstructs)")
+    ap.add_argument("--positions", default="last_prompt",
+                    choices=["last_prompt", "all_reply", "all"],
+                    help="where to inject. The banked B4 run used last_prompt (the site the "
+                         "NLA paper steers) and hardcoded it; the mechanism always supported "
+                         "the others, so a null at one position was never a null in general.")
+    ap.add_argument("--max-hours", type=float, default=11.0)
+    # The B4 run stored answers and reply LENGTHS but not the replies themselves, so "what did
+    # steering actually do to the text" was unanswerable after the fact. These two flags make a
+    # small illustrative re-run cheap: pick the items that flipped, keep the generations.
+    ap.add_argument("--snippets", default=None,
+                    help="comma-separated snippet_ids (or a file of them) to restrict the run to")
+    ap.add_argument("--only-conditions", default=None,
+                    help="comma-separated condition names to run, e.g. V1_gloss,V3_taskvec")
+    ap.add_argument("--save-replies", action="store_true",
+                    help="store the generated text alongside the grade")
+    args = ap.parse_args()
+
+    import torch
+    torch.manual_seed(SEED)
+    from capture_core import WallGuard, JsonlSink, align_reply
+    from extract import ActivationExtractor
+    from nla_inference import NLACritic
+    from steer import ActivationSteerer, SteerSpec
+    from steer_vectors import (ActivationPair, TaskVectorBank, antipodal, nla_edit_direction,
+                               random_direction, substitute_terms, word_edit_direction)
+
+    rng = random.Random(SEED)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pairs = load_pairs(args.limit, rng)
+    if args.snippets:
+        want = Path(args.snippets).read_text().split() if Path(args.snippets).exists() \
+            else [x.strip() for x in args.snippets.split(",")]
+        want = {w for w in want if w}
+        pairs = [p for p in pairs if p["snippet_id"] in want]
+        print(f"[b4] restricted to {len(pairs)} of {len(want)} requested snippets "
+              f"(applied before the baseline pass)", flush=True)
+    print(f"[b4] {len(pairs)} L0/L1b pairs with ground truth", flush=True)
+
+    ex = ActivationExtractor(TARGET_MODEL, LAYER_INDEX, device=args.device)
+    ar = NLACritic(_NLA_ROOT / "data" / "checkpoints" / "ar", device=args.device)
+    tokz = ex.tokenizer
+    steerer = ActivationSteerer(ex.model, LAYER_INDEX)
+    wall = WallGuard(args.max_hours)
+
+    def gen(code: str, call: str, spec=None, extra: str = "") -> tuple[str, int]:
+        user = build_user(code, call) + extra
+        ids = tokz.apply_chat_template([{"role": "user", "content": user}], tokenize=True,
+                                       add_generation_prompt=True, return_dict=False)
+        steerer.set_spec(spec, prompt_len=len(ids), max_total=len(ids) + MAX_NEW_GEN)
+        with torch.no_grad():
+            o = ex.model.generate(torch.tensor([ids], device=ex.model.device),
+                                  max_new_tokens=MAX_NEW_GEN, do_sample=False,
+                                  pad_token_id=tokz.eos_token_id)
+        steerer.reset()
+        return tokz.decode(o[0][len(ids):], skip_special_tokens=True), len(ids)
+
+    def last_tok_act(code: str, call: str) -> np.ndarray:
+        """Activation at the final prompt token — the site the paper steers."""
+        res = ex.extract_chat(build_user(code, call), None, text_id="x")
+        return res.activations[-1]
+
+    # ── stage 1: baselines + per-item activations ─────────────────────────
+    base_p = out_dir / "baseline.jsonl"
+    sink = JsonlSink(base_p, key_field="snippet_id")
+    done = sink.done_keys()
+    acts: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    base: dict[str, dict] = {}
+    if base_p.exists():
+        for l in open(base_p):
+            r = json.loads(l)
+            base[r["snippet_id"]] = r
+
+    for i, p in enumerate(pairs, 1):
+        if wall.expired():
+            break
+        sid = p["snippet_id"]
+        h0, h1 = last_tok_act(p["code_l0"], p["call_l0"]), last_tok_act(p["code_l1b"], p["call_l1b"])
+        acts[sid] = (h0, h1)
+        if sid in done:
+            continue
+        rep, _ = gen(p["code_l1b"], p["call_l1b"])
+        got, ok = graded(rep, p["truth"])
+        rep0, _ = gen(p["code_l0"], p["call_l0"])
+        got0, ok0 = graded(rep0, p["truth"])
+        row = {"snippet_id": sid, "truth": p["truth"], "l1b_answer": got, "l1b_correct": ok,
+               "l0_answer": got0, "l0_correct": ok0, "reply_chars": len(rep),
+               "l1b_parsed": got is not None, "l0_parsed": got0 is not None}
+        sink.append(row)
+        base[sid] = row
+        print(f"[b4] baseline {i}/{len(pairs)} {sid} L0={ok0} L1b={ok}", flush=True)
+    sink.close()
+
+    usable = [p for p in pairs if p["snippet_id"] in base and p["snippet_id"] in acts]
+    n_wrong = sum(1 for p in usable if not base[p["snippet_id"]]["l1b_correct"])
+    print(f"[b4] {len(usable)} usable · {n_wrong} wrong at L1b baseline (the recovery target)",
+          flush=True)
+
+    # ── vectors ───────────────────────────────────────────────────────────
+    bank = TaskVectorBank([ActivationPair(p["snippet_id"],
+                                          torch.tensor(acts[p["snippet_id"]][0]),
+                                          torch.tensor(acts[p["snippet_id"]][1]))
+                           for p in usable])
+
+    def v1(p) -> torch.Tensor:                       # NLA, natural language, no AV call
+        return (ar.reconstruct(p["gloss_true"]).float()
+                - ar.reconstruct(p["gloss_decoy"]).float()).cpu()
+
+    v1_cache = {p["snippet_id"]: v1(p) for p in usable}
+
+    # ── V2: the same edit, but minimal ────────────────────────────────────
+    # V1 replaces the WHOLE decoy gloss with the true one, so a difference between them could
+    # come from any of up to eight swapped terms, or from the sentence being different overall.
+    # V2 changes exactly one word. If the belief is carried by a single lexical item, V2 should
+    # do most of V1's work; if it needs the whole description, V2 should do much less. That
+    # contrast is the point, and it is why `word_edit_direction(require_single=True)` raises
+    # rather than silently making two substitutions.
+    #
+    # No AV call is needed: the edit is applied to the gloss `load_pairs` already builds, which
+    # is the same text V1 reconstructs. An AV-read-and-edit variant would additionally measure
+    # the verbalizer's paraphrase, which is a different question.
+    def v2_mapping(p) -> dict[str, str] | None:
+        """One decoy->true substitution, taken from the stimulus's own rename map.
+
+        Deterministic tie-break: among the decoy terms that appear exactly once in the gloss,
+        take the one appearing earliest in the gloss, so the choice does not depend on dict
+        ordering. Items whose rename map yields no single-occurrence term are skipped and
+        counted rather than forced — V2's whole claim is that *one* word changed.
+        """
+        rmap = p.get("rename_map") or {}
+        cands = []
+        for true_name, decoy_name in rmap.items():
+            if not decoy_name or true_name.lower() == decoy_name.lower():
+                continue
+            _, n = substitute_terms(p["gloss_decoy"], {decoy_name: true_name})
+            if n == 1:
+                cands.append((p["gloss_decoy"].lower().find(decoy_name.lower()),
+                              decoy_name, true_name))
+        if not cands:
+            return None
+        cands.sort()
+        return {cands[0][1]: cands[0][2]}
+
+    v2_cache: dict[str, torch.Tensor] = {}
+    v2_skipped: list[str] = []
+    if args.with_v2:
+        for p in usable:
+            m = v2_mapping(p)
+            if m is None:
+                v2_skipped.append(p["snippet_id"])
+                continue
+            try:
+                v2_cache[p["snippet_id"]] = word_edit_direction(
+                    ar, p["gloss_decoy"], m, require_single=True).cpu()
+            except ValueError as e:
+                v2_skipped.append(p["snippet_id"])
+                print(f"[b4] V2 skip {p['snippet_id']}: {e}", flush=True)
+        print(f"[b4] V2: {len(v2_cache)} directions built, {len(v2_skipped)} skipped "
+              f"(no minimal single-word edit available)", flush=True)
+
+    # The AR has done its whole job by this point: V1 and V2 are cached, and V3/V4 are pure
+    # activation arithmetic while the controls derive from v1_cache. Holding it costs ~11 GB
+    # for the rest of the run, and on a card also hosting the AV server (21.6 GB) plus the
+    # subject model (15.2 GB) that leaves ~800 MB free — at which point the CUDA allocator
+    # thrashes on every generation. Measured effect: throughput decayed from 5.7 to 2.0
+    # rows/min over the first two hours, pushing the ETA past the wall guard. Freeing it here
+    # returns ~12 GB of headroom to the generation loop.
+    del ar
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    conds: dict[str, callable] = {
+        "V1_gloss":      lambda p: v1_cache[p["snippet_id"]],
+        "V3_taskvec":    lambda p: bank.direction_for(exclude=p["snippet_id"]),
+        "V4_oracle":     lambda p: bank.oracle_for(p["snippet_id"]),
+        "R_random":      lambda p: random_direction(v1_cache[p["snippet_id"]].numel(),
+                                                    seed=SEED + hash(p["snippet_id"]) % 9973,
+                                                    like=v1_cache[p["snippet_id"]]),
+        "F_foreign":     lambda p: v1_cache[[q["snippet_id"] for q in usable
+                                             if q["snippet_id"] != p["snippet_id"]][
+                                                 hash(p["snippet_id"]) % max(len(usable) - 1, 1)]],
+        "A_antipodal":   lambda p: antipodal(v1_cache[p["snippet_id"]]),
+    }
+    if args.with_v2:
+        # Only items with a well-defined minimal edit. Every other condition still runs on the
+        # full set, so V2's denominator differs — steer_stats pairs per condition, and the V2
+        # row must be read against its own n, not the battery's.
+        conds["V2_wordedit"] = lambda p: v2_cache[p["snippet_id"]]
+
+    # ── stage 2: alpha sweep, then the frozen battery ─────────────────────
+    alphas = ([args.frozen_alpha] if args.frozen_alpha
+              else [float(a) for a in args.alphas.split(",")])
+    res_p = out_dir / "steer_results.jsonl"
+    rsink = JsonlSink(res_p, key_field="key")
+    rdone = rsink.done_keys()
+
+    # The resume key MUST carry the injection position, or a position sweep silently inherits
+    # the previous position's rows as "done" and reports last_prompt numbers under a different
+    # label. It is suffixed rather than inserted so the 420 banked last_prompt rows — whose
+    # keys predate this flag — still resume instead of re-running for 2.3 GPU-h.
+    def run_key(sid: str, cname: str, a: float) -> str:
+        base = f"{sid}|{cname}|{a}"
+        return base if args.positions == "last_prompt" else f"{base}|{args.positions}"
+
+    if args.only_conditions:
+        keep = {c.strip() for c in args.only_conditions.split(",") if c.strip()}
+        conds = {k: v for k, v in conds.items() if k in keep}
+        print(f"[b4] conditions restricted to {sorted(conds)}", flush=True)
+
+    t0 = time.time()
+    todo = [(p, cname, a) for p in usable for cname in conds for a in alphas]
+    todo = [t for t in todo if run_key(t[0]["snippet_id"], t[1], t[2]) not in rdone]
+    print(f"[b4] {len(todo)} steered generations to run", flush=True)
+
+    for n, (p, cname, a) in enumerate(todo, 1):
+        if wall.expired():
+            print("[b4] wall budget reached — stopping cleanly", flush=True)
+            break
+        sid = p["snippet_id"]
+        key = run_key(sid, cname, a)
+        try:
+            delta = conds[cname](p)
+            rep, plen = gen(p["code_l1b"], p["call_l1b"],
+                            SteerSpec(delta=delta, alpha=a, positions=args.positions))
+            got, ok = graded(rep, p["truth"])
+            row = {"key": key, "snippet_id": sid, "condition": cname, "alpha": a,
+                   "positions": args.positions,
+                   "answer": got, "correct": ok, "parsed": got is not None,
+                   "baseline_correct": base[sid]["l1b_correct"],
+                   "reply_chars": len(rep)}
+            if args.save_replies:
+                # the edit itself is the point of V1/V2: the direction IS this pair of sentences
+                row.update({"reply": rep, "truth": p["truth"],
+                            "gloss_decoy": p.get("gloss_decoy"),
+                            "gloss_true": p.get("gloss_true"),
+                            "code_l1b": p.get("code_l1b"), "call_l1b": p.get("call_l1b")})
+            rsink.append(row)
+        except Exception as e:
+            rsink.append({"key": key, "snippet_id": sid, "condition": cname, "alpha": a,
+                          "error": repr(e)[:200]})
+        if n % 20 == 0:
+            rate = n / (time.time() - t0)
+            print(f"[b4] {n}/{len(todo)} · {rate*60:.1f}/min · "
+                  f"ETA {(len(todo)-n)/max(rate,1e-9)/60:.0f} min", flush=True)
+
+    # ── prompt-only baseline (no steering; the control that usually wins) ──
+    for p in usable:
+        if wall.expired():
+            break
+        key = f"{p['snippet_id']}|P_prompt|0"
+        if key in rdone:
+            continue
+        rep, _ = gen(p["code_l1b"], p["call_l1b"],
+                     extra=f"\n\nNote: the identifiers are misleading. This is {p['gloss_true']}.")
+        got, ok = graded(rep, p["truth"])
+        rsink.append({"key": key, "snippet_id": p["snippet_id"], "condition": "P_prompt",
+                      "alpha": 0.0, "answer": got, "correct": ok, "parsed": got is not None,
+                      "baseline_correct": base[p["snippet_id"]]["l1b_correct"]})
+    rsink.close()
+    steerer.close()
+    ex.close()
+
+    (out_dir / "run_manifest.json").write_text(json.dumps({
+        "experiment": "n12_b4_steering_gate", "seed": SEED, "argv": sys.argv,
+        "model": TARGET_MODEL, "layer": LAYER_INDEX, "alphas": alphas,
+        "n_pairs": len(usable), "n_wrong_baseline": n_wrong,
+        "conditions": list(conds) + ["P_prompt"],
+        "elapsed_hours": round(wall.elapsed_h(), 3),
+        "finished_utc": datetime.now(timezone.utc).isoformat()}, indent=2))
+    print(f"[b4] done · {wall.elapsed_h():.2f} h", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

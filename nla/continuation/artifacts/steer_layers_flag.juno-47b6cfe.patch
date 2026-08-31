@@ -1,0 +1,177 @@
+diff --git a/artifact/obfuscation/main.py b/artifact/obfuscation/main.py
+index bf9364fb..28832c36 100644
+--- a/artifact/obfuscation/main.py
++++ b/artifact/obfuscation/main.py
+@@ -33,6 +33,32 @@ from counterfactual_eval import (
+ 
+ 
+ 
++def _apply_seed(seed: Optional[int]) -> None:
++    """artifact-fix: seed every RNG that can affect generation. See main.py's copy.
++
++    **Deliberately duplicated rather than imported.** This file is itself named `main.py`, so
++    `from main import _apply_seed` is ambiguous: which module wins depends on whether
++    `artifact/` precedes `artifact/obfuscation/` on `sys.path`. The guard at the top of this
++    file only inserts PROJECT_ROOT `if str(PROJECT_ROOT) not in sys.path` — and the matrix
++    worker already puts the repo on PYTHONPATH, so the insert is skipped, the script directory
++    stays first, and `import main` resolves to *this file*, which then re-imports itself and
++    dies with a partially-initialized-module ImportError. That is exactly what happened: all
++    90 B0 units failed rc=1 on attempt 1. Ten duplicated lines are cheaper than an import whose
++    target depends on the caller's environment.
++    """
++    if seed is None:
++        return
++    import random as _random
++
++    import numpy as _np
++    _random.seed(seed)
++    _np.random.seed(seed % (2 ** 32))
++    torch.manual_seed(seed)
++    if torch.cuda.is_available():
++        torch.cuda.manual_seed_all(seed)
++    print(f"[artifact-fix] seeded torch/numpy/random with {seed}")
++
++
+ def _load_skip_models(base_dir: Path) -> tuple[set[str], list[Path]]:
+     skipped: set[str] = set()
+     sources: list[Path] = []
+@@ -172,6 +198,25 @@ def _collect_variants(
+ 
+ def parse_args() -> argparse.Namespace:
+     ap = argparse.ArgumentParser(description="Output prediction runner on a prepared obfuscated Java corpus.")
++    # artifact-fix (B5/E6): the NLA belief-steering channel. The attention channel already
++    # lives in this runner (--steer); adding the residual-write hook here rather than building a
++    # parallel runner means the case packs, the grader, the sampling protocol and the matrix
++    # integration are shared between the two levers by construction, so a composed condition
++    # differs from a single-lever one ONLY in the lever. A separate runner would have had to
++    # re-derive all of that and could drift from it silently.
++    ap.add_argument("--nla-dir", type=str, default=None,
++                    help="directory holding <condition>.npz of per-snippet steering directions")
++    ap.add_argument("--nla-condition", type=str, default=None,
++                    help="which direction family to load: v1 | v3 | v4 | random")
++    ap.add_argument("--nla-alpha", type=float, default=0.0,
++                    help="injection strength; 0.0 is a verified no-op (hook short-circuits)")
++    ap.add_argument("--nla-layer", type=int, default=20)
++    ap.add_argument("--nla-positions", type=str, default="last_prefill",
++                    help="last_prefill resolves the final prompt token at runtime, so this "
++                         "runner never has to re-tokenize the prompt to find it")
++    # artifact-fix: see main._apply_seed — sampling was never seeded in this artifact.
++    ap.add_argument("--seed", type=int, default=None,
++                    help="artifact-fix: seed torch/numpy/random at process start")
+     ap.add_argument(
+         "--dataset",
+         choices=["eyetracking", "humaneval", "cruxeval"],
+@@ -282,11 +327,23 @@ def parse_args() -> argparse.Namespace:
+         default=None,
+         help="Override the steering layer band to the last N transformer layers.",
+     )
++    # P0.3 (prereg 2026-08-27) needs an ARBITRARY band, not a suffix: the question is whether
++    # layer 20 alone is a live site, and --steer-last-n-layers 1 gives layer 27. The underlying
++    # config has always had steer_layer_start/end; only the CLI was suffix-shaped.
++    ap.add_argument(
++        "--steer-layers",
++        type=str,
++        default=None,
++        metavar="A:B",
++        help="Explicit inclusive steering layer band, e.g. 20:20 or 20:27. "
++             "Takes precedence over --steer-last-n-layers.",
++    )
+     return ap.parse_args()
+ 
+ 
+ def main() -> None:
+     args = parse_args()
++    _apply_seed(getattr(args, "seed", None))
+     skipped_models, skip_sources = _load_skip_models(PROJECT_ROOT)
+     if args.model_name and args.model_name in skipped_models:
+         source_text = ", ".join(str(p) for p in skip_sources) if skip_sources else "OBF_SKIP_MODELS"
+@@ -355,7 +412,44 @@ def main() -> None:
+         cache_dir=args.cache_dir,
+     )
+     llama.build()
+-    if base_steering_config and args.steer_last_n_layers is not None:
++
++    # artifact-fix (B5/E6): install the belief-steering hook on the same model object the
++    # attention backend is already patched into, so both levers act on one forward pass.
++    nla_steerer = None
++    nla_dirs: dict = {}
++    nla_missing: set = set()      # snippets with no direction — left unsteered and REPORTED
++    if args.nla_dir and args.nla_condition and args.nla_alpha != 0.0:
++        import numpy as _np
++        sys.path.insert(0, os.environ.get("NLA_SRC",
++                        "/work/jvl210002/migration/transcoders/nla/src"))
++        from steer import ActivationSteerer as _AS, SteerSpec as _SS  # noqa: E402
++        _z = _np.load(str(Path(args.nla_dir) / f"{args.nla_condition}.npz"))
++        nla_dirs = {k: _z[k] for k in _z.files}
++        nla_steerer = _AS(llama.model, int(args.nla_layer))
++        globals()["_SS"] = _SS
++        print(f"[nla] {args.nla_condition}: {len(nla_dirs)} directions, alpha={args.nla_alpha}, "
++              f"layer={args.nla_layer}, positions={args.nla_positions}")
++    elif args.nla_dir:
++        print(f"[nla] alpha={args.nla_alpha} -> belief channel OFF (hook not installed)")
++    if base_steering_config and getattr(args, "steer_layers", None):
++        try:
++            _lo, _hi = (int(x) for x in str(args.steer_layers).split(":", 1))
++        except Exception:
++            raise SystemExit(f"--steer-layers expects A:B, got {args.steer_layers!r}")
++        _nl = getattr(getattr(llama.model, "config", None), "num_hidden_layers", None)
++        if not isinstance(_nl, int) or _nl <= 0:
++            _lo_obj = getattr(getattr(llama.model, "model", None), "layers", None)
++            _nl = len(_lo_obj) if _lo_obj is not None else None
++        if not isinstance(_nl, int) or _nl <= 0:
++            raise SystemExit("--steer-layers: cannot infer layer count; refusing to guess")
++        if not (0 <= _lo <= _hi < _nl):
++            raise SystemExit(f"--steer-layers {_lo}:{_hi} out of range for {_nl} layers")
++        base_steering_config.steer_layer_start = _lo
++        base_steering_config.steer_layer_end = _hi
++        if active_steering_config is not None:
++            _assign_config_fields(active_steering_config, base_steering_config)
++        print(f"[Steering] explicit layer band: start={_lo}, end={_hi} (num_layers={_nl})")
++    elif base_steering_config and args.steer_last_n_layers is not None:
+         n = max(1, int(args.steer_last_n_layers))
+         num_layers = getattr(getattr(llama.model, "config", None), "num_hidden_layers", None)
+         if not isinstance(num_layers, int) or num_layers <= 0:
+@@ -480,6 +574,26 @@ def main() -> None:
+ 
+             run_idx = 1
+             completed = 0
++            # artifact-fix (B5/E6): the direction is per snippet, so the spec is installed per
++            # snippet. A snippet with no direction is left UNSTEERED and counted, rather than
++            # silently falling back to some other snippet's vector.
++            #
++            # PLACEMENT (juno re-application, 2026-08-28): the saved patch was cut against a
++            # revision of this file that had a `parse_retries = 0` line here. This clone does not,
++            # so `patch --fuzz` dropped the block INSIDE the while-loop and broke its indentation.
++            # Restored to its intended position — before the loop, once per snippet — which is what
++            # "the spec is installed per snippet" means. Installing it per run would be harmless but
++            # would re-upload the same tensor on every iteration.
++            _nla_vec = nla_dirs.get(snippet) if nla_steerer is not None else None
++            if nla_steerer is not None:
++                if _nla_vec is None:
++                    nla_missing.add(snippet)
++                    nla_steerer.set_spec(None)
++                else:
++                    import torch as _t
++                    nla_steerer.set_spec(_SS(delta=_t.from_numpy(_nla_vec).float(),
++                                             alpha=float(args.nla_alpha),
++                                             positions=args.nla_positions))
+             while completed < runs_per_variant:
+                 result = llama.run_llama(
+                     code,
+@@ -647,6 +761,16 @@ def main() -> None:
+                 completed += 1
+     finally:
+         run_progress.close()
++        # artifact-fix (B5/E6): a snippet with no steering direction ran UNSTEERED. Silently
++        # mixing unsteered items into a steered condition would deflate its effect toward the
++        # baseline with nothing in the output to show it, so the count is printed and the ids
++        # are written next to the results.
++        if nla_steerer is not None:
++            print(f"[nla] steered snippets: {len(nla_dirs)} available, "
++                  f"{len(nla_missing)} had no direction and ran UNSTEERED")
++            if nla_missing:
++                print(f"[nla] unsteered: {sorted(nla_missing)}")
++            nla_steerer.close()
+         llama.free()
+ 
+ 

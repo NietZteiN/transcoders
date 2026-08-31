@@ -1,0 +1,76 @@
+# B4 v2 — the alpha grid, the injection-position sweep, and V2.
+#
+# The banked B4 run (data/nla/n12/, 2026-08-14) tested ONE alpha (1.0) at ONE injection
+# position (last_prompt) and failed its pre-registered gate: V1 0.550 vs V3 0.550, an exact
+# tie, McNemar p = 1.00. `steer_run.py` always supported `--alphas`; the run simply used
+# `--frozen-alpha 1.0`. So "V1 does not beat V3" was only ever established at one point in a
+# two-dimensional space, and this config covers the rest of it.
+#
+# What that buys, stated honestly: the sweep is a claim-STRENGTHENER, not a headline-changer.
+# The damning number in the banked run is that the antipodal control matched random exactly
+# (+0.033 vs +0.033). That says the NLA direction has no consistent SIGN, which is not a
+# magnitude problem — scaling a sign-free vector does not make it informative. What the sweep
+# converts is "V1 does not beat V3 at alpha=1" into "V1 does not beat V3 anywhere across a 16x
+# range of alpha, at three injection positions, against seven controls." That is the difference
+# between a limitation a reviewer kills you with and a claim you own.
+
+# ─── the sweep ───────────────────────────────────────────────────────────────────────
+# 0.25 .. 4.0 is a 16x range around the banked 1.0. alpha=1 injects a step the size of ||h||,
+# which is already aggressive, so the grid leans below it as well as above.
+alphas: [0.25, 0.5, 1.0, 2.0, 4.0]
+
+# PRE-REGISTERED PRIMARY. The gate at this alpha and this position IS the verdict; every other
+# cell is secondary and BH-adjusted across the alpha family by steer_stats.py. Chosen as the
+# banked run's setting so the primary is the pre-existing test rather than a newly favourable
+# cell — picking the best-looking alpha after the fact is the garden of forking paths, and this
+# programme has twice been fooled by partial results (N11's 3/3 -> 3/10, B4's n=34 interim ->
+# an exact tie at n=60).
+primary_alpha: 1.0
+primary_positions: last_prompt
+
+# Injection positions. The mechanism (SteerSpec) always accepted these; only the runner
+# hardcoded `last_prompt`. Swept at the primary alpha only, to keep the family small.
+positions_sweep: [last_prompt, all_reply]
+
+# ─── conditions ──────────────────────────────────────────────────────────────────────
+# V1 NLA gloss edit · V3 contrastive task vector (NO NLA — the bar V1 must clear) ·
+# V4 item oracle (uses the clean program, NOT deployable) · random / foreign / antipodal
+# controls · prompt-only. V2 is the minimal single-word edit, newly wired: V1 swaps the whole
+# gloss, so a V1 effect could come from any of up to eight terms; V2 changes exactly one.
+with_v2: true
+
+# ─── frozen analysis rules (declare BEFORE the run) ──────────────────────────────────
+# Success statistic is balanced delta-accuracy over ALL items, not flip rate: a vector that
+# makes the model shout "sorting" at everything scores brilliantly on flips while destroying
+# answers it already had. `recovered` and `damaged` are reported separately so the trade stays
+# visible instead of being netted away.
+success_statistic: balanced_delta_accuracy
+gate: V1 > V3 at the primary alpha and position
+multiplicity: BH-FDR across the secondary alphas; the primary is not in its own correction
+
+# ─── runtime ─────────────────────────────────────────────────────────────────────────
+# n is CAPPED at 70 by the stimulus set (dataset_a + dataset_b have 70 snippets with usable
+# L0/L1b pairs and ground truth). No amount of GPU time raises it — only a corpus change does,
+# which is what the B5 composed runner on the Java corpus is for. State as a limitation.
+seed: 20260724
+layer_index: 20          # the AR is trained at L20 only; V1/V2 are undefined elsewhere, so a
+                         # layer sweep would sweep only the no-NLA baselines and structurally
+                         # favour V3. Not run; recorded as a limitation.
+max_hours: 11.0
+sglang_url: http://localhost:30013
+mem_fraction_static: 0.40
+
+# ─── ADDENDUM 2026-08-16, after the first sweep launched ─────────────────────────────
+# V2's decoy->true pairing was initially taken by zipping the two tiers' identifier-term
+# lists. That is wrong: adversarial renaming introduces MORE annotated identifier sites than
+# the original has distinct terms (Python/100 is 3 decoy terms against 1 true one), so the
+# lists differ in length on 52 of 60 pairs and only 8 V2 directions could be built. The
+# stimulus rows carry the correct correspondence in `meta.rename_map` (original -> decoy);
+# inverting that yields a well-defined single-word edit for 60 of 60.
+#
+# OPERATIONAL CONSEQUENCE: the first sweep banked 8 V2 items under the OLD definition. Those
+# rows must be DELETED from steer_results.jsonl before re-running, not resumed — otherwise the
+# V2 condition would mix two different edit definitions across items, which no downstream
+# statistic would reveal.
+#
+#   grep -v '"condition": "V2_wordedit"' steer_results.jsonl > tmp && mv tmp steer_results.jsonl

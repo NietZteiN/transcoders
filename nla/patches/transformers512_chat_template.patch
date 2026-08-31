@@ -1,0 +1,28 @@
+diff --git a/nla_inference.py b/nla_inference.py
+index bc4b894..b94b7aa 100644
+--- a/nla_inference.py
++++ b/nla_inference.py
+@@ -184,9 +184,10 @@ def load_nla_config(
+     # apply_chat_template(tokenize=True) handles BOS correctly for all
+     # architectures (Gemma template includes <bos>; Qwen has none).
+     content = cfg.actor_prompt_template.format(injection_char=cfg.injection_char)
++    # transformers >=5.12 defaults return_dict=True (BatchEncoding); we need list[int]
+     ids = tokenizer.apply_chat_template(
+         [{"role": "user", "content": content}],
+-        tokenize=True, add_generation_prompt=True,
++        tokenize=True, add_generation_prompt=True, return_dict=False,
+     )
+     matches = [i for i, tok in enumerate(ids) if tok == cfg.injection_token_id]
+     assert len(matches) == 1, (
+@@ -400,9 +401,10 @@ class NLAClient:
+         # is equivalent but add_special_tokens=True there would double-BOS
+         # Gemma (shifting every position by 1). Qwen has bos_token=None so
+         # it's a silent noop there, which makes this easy to miss.
++        # transformers >=5.12 defaults return_dict=True (BatchEncoding); we need list[int]
+         input_ids = self.tokenizer.apply_chat_template(
+             [{"role": "user", "content": content}],
+-            tokenize=True, add_generation_prompt=True,
++            tokenize=True, add_generation_prompt=True, return_dict=False,
+         )
+         ids_t = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
+ 

@@ -1,0 +1,241 @@
+{
+ "experiment": "p0.1_layer_rotation",
+ "prereg": "log/nla-harness/2026-08-27_p0-triage-prereg.md",
+ "model": "Qwen/Qwen2.5-7B-Instruct",
+ "seed": 20260724,
+ "n_pairs": 60,
+ "n_layers": 28,
+ "read_position": "final prompt token",
+ "gate_relative_error": 0.0,
+ "min_rotation_layers_21_27": 0.2771276533603668,
+ "verdict": "HARD",
+ "threshold": 0.5,
+ "argmax_coherence_layer": 13,
+ "instrument_layer": 20,
+ "layers": [
+  {
+   "layer": 0,
+   "rotation_vs_l20": 0.01564662717282772,
+   "coherence_loo": 0.4923270826538404,
+   "coherence_loo_sd": 0.10464786994898023,
+   "rel_magnitude": 0.037180956453084946,
+   "mean_act_norm": 10.172517776489258
+  },
+  {
+   "layer": 1,
+   "rotation_vs_l20": 0.026493987068533897,
+   "coherence_loo": 0.5189651218553384,
+   "coherence_loo_sd": 0.11230328636653161,
+   "rel_magnitude": 0.036612145602703094,
+   "mean_act_norm": 14.797298431396484
+  },
+  {
+   "layer": 2,
+   "rotation_vs_l20": 0.024901660159230232,
+   "coherence_loo": 0.5220868319272995,
+   "coherence_loo_sd": 0.11686004548467499,
+   "rel_magnitude": 0.04200238361954689,
+   "mean_act_norm": 18.234439849853516
+  },
+  {
+   "layer": 3,
+   "rotation_vs_l20": 0.018307726830244064,
+   "coherence_loo": 0.5235604812701543,
+   "coherence_loo_sd": 0.12070672794769617,
+   "rel_magnitude": 0.04613792523741722,
+   "mean_act_norm": 20.2047119140625
+  },
+  {
+   "layer": 4,
+   "rotation_vs_l20": 0.04060545191168785,
+   "coherence_loo": 0.529190082848072,
+   "coherence_loo_sd": 0.12083559884108923,
+   "rel_magnitude": 0.047957874834537506,
+   "mean_act_norm": 22.049043655395508
+  },
+  {
+   "layer": 5,
+   "rotation_vs_l20": 0.036657314747571945,
+   "coherence_loo": 0.5156958306829135,
+   "coherence_loo_sd": 0.11599594353755555,
+   "rel_magnitude": 0.040716636925935745,
+   "mean_act_norm": 29.533077239990234
+  },
+  {
+   "layer": 6,
+   "rotation_vs_l20": 0.06765443831682205,
+   "coherence_loo": 0.5312416357298692,
+   "coherence_loo_sd": 0.10975070036685053,
+   "rel_magnitude": 0.04240574687719345,
+   "mean_act_norm": 30.587608337402344
+  },
+  {
+   "layer": 7,
+   "rotation_vs_l20": 0.1171441376209259,
+   "coherence_loo": 0.5075480654835701,
+   "coherence_loo_sd": 0.10749177663157158,
+   "rel_magnitude": 0.04356887936592102,
+   "mean_act_norm": 31.355459213256836
+  },
+  {
+   "layer": 8,
+   "rotation_vs_l20": 0.132147416472435,
+   "coherence_loo": 0.5117997931937377,
+   "coherence_loo_sd": 0.11870481367239526,
+   "rel_magnitude": 0.05055784806609154,
+   "mean_act_norm": 32.46134948730469
+  },
+  {
+   "layer": 9,
+   "rotation_vs_l20": 0.10425370931625366,
+   "coherence_loo": 0.5218828322986762,
+   "coherence_loo_sd": 0.10267919520263971,
+   "rel_magnitude": 0.04380020499229431,
+   "mean_act_norm": 39.76506423950195
+  },
+  {
+   "layer": 10,
+   "rotation_vs_l20": 0.11938856542110443,
+   "coherence_loo": 0.5223161960641544,
+   "coherence_loo_sd": 0.10823808497076833,
+   "rel_magnitude": 0.04400074854493141,
+   "mean_act_norm": 41.579673767089844
+  },
+  {
+   "layer": 11,
+   "rotation_vs_l20": 0.13191121816635132,
+   "coherence_loo": 0.5226694916685423,
+   "coherence_loo_sd": 0.10960243620570494,
+   "rel_magnitude": 0.04443230852484703,
+   "mean_act_norm": 41.710777282714844
+  },
+  {
+   "layer": 12,
+   "rotation_vs_l20": 0.15292778611183167,
+   "coherence_loo": 0.5349297111233076,
+   "coherence_loo_sd": 0.10967029879584395,
+   "rel_magnitude": 0.043378643691539764,
+   "mean_act_norm": 45.2953987121582
+  },
+  {
+   "layer": 13,
+   "rotation_vs_l20": 0.20985381305217743,
+   "coherence_loo": 0.5434944195051988,
+   "coherence_loo_sd": 0.10822853143474662,
+   "rel_magnitude": 0.04429514706134796,
+   "mean_act_norm": 52.02756118774414
+  },
+  {
+   "layer": 14,
+   "rotation_vs_l20": 0.2542804479598999,
+   "coherence_loo": 0.533244081089894,
+   "coherence_loo_sd": 0.1063684989539066,
+   "rel_magnitude": 0.036250654608011246,
+   "mean_act_norm": 65.17191314697266
+  },
+  {
+   "layer": 15,
+   "rotation_vs_l20": 0.2920718491077423,
+   "coherence_loo": 0.538016318778197,
+   "coherence_loo_sd": 0.09846997369056433,
+   "rel_magnitude": 0.04014448821544647,
+   "mean_act_norm": 58.986473083496094
+  },
+  {
+   "layer": 16,
+   "rotation_vs_l20": 0.32021212577819824,
+   "coherence_loo": 0.5116128072142601,
+   "coherence_loo_sd": 0.09554997250996797,
+   "rel_magnitude": 0.03927386552095413,
+   "mean_act_norm": 63.44486618041992
+  },
+  {
+   "layer": 17,
+   "rotation_vs_l20": 0.37412846088409424,
+   "coherence_loo": 0.5019790933777889,
+   "coherence_loo_sd": 0.10132843171695789,
+   "rel_magnitude": 0.0393914133310318,
+   "mean_act_norm": 68.3689956665039
+  },
+  {
+   "layer": 18,
+   "rotation_vs_l20": 0.5626140832901001,
+   "coherence_loo": 0.4862751721171662,
+   "coherence_loo_sd": 0.1787474728735975,
+   "rel_magnitude": 0.060042671859264374,
+   "mean_act_norm": 75.80525207519531
+  },
+  {
+   "layer": 19,
+   "rotation_vs_l20": 0.7728157043457031,
+   "coherence_loo": 0.46917226339379947,
+   "coherence_loo_sd": 0.18533415473731046,
+   "rel_magnitude": 0.06571990996599197,
+   "mean_act_norm": 91.38800811767578
+  },
+  {
+   "layer": 20,
+   "rotation_vs_l20": 1.0,
+   "coherence_loo": 0.45919651246319215,
+   "coherence_loo_sd": 0.1718057929194597,
+   "rel_magnitude": 0.06754694879055023,
+   "mean_act_norm": 106.17231750488281
+  },
+  {
+   "layer": 21,
+   "rotation_vs_l20": 0.8181345462799072,
+   "coherence_loo": 0.45672862641513345,
+   "coherence_loo_sd": 0.17151037865382682,
+   "rel_magnitude": 0.06375007331371307,
+   "mean_act_norm": 131.0183868408203
+  },
+  {
+   "layer": 22,
+   "rotation_vs_l20": 0.6716582179069519,
+   "coherence_loo": 0.44581629826376834,
+   "coherence_loo_sd": 0.16894774560941273,
+   "rel_magnitude": 0.0618923045694828,
+   "mean_act_norm": 165.2595977783203
+  },
+  {
+   "layer": 23,
+   "rotation_vs_l20": 0.5828332304954529,
+   "coherence_loo": 0.4356810381015142,
+   "coherence_loo_sd": 0.1748555518021374,
+   "rel_magnitude": 0.060182150453329086,
+   "mean_act_norm": 196.27391052246094
+  },
+  {
+   "layer": 24,
+   "rotation_vs_l20": 0.4997616410255432,
+   "coherence_loo": 0.4330881129950285,
+   "coherence_loo_sd": 0.17883395596618648,
+   "rel_magnitude": 0.05274985358119011,
+   "mean_act_norm": 256.6587829589844
+  },
+  {
+   "layer": 25,
+   "rotation_vs_l20": 0.4406552016735077,
+   "coherence_loo": 0.4357644268622001,
+   "coherence_loo_sd": 0.18470398412933753,
+   "rel_magnitude": 0.05197841674089432,
+   "mean_act_norm": 312.78363037109375
+  },
+  {
+   "layer": 26,
+   "rotation_vs_l20": 0.37393316626548767,
+   "coherence_loo": 0.44331776158263286,
+   "coherence_loo_sd": 0.17809045324894485,
+   "rel_magnitude": 0.0486261323094368,
+   "mean_act_norm": 391.7239990234375
+  },
+  {
+   "layer": 27,
+   "rotation_vs_l20": 0.2771276533603668,
+   "coherence_loo": 0.4210326578933746,
+   "coherence_loo_sd": 0.181254269299841,
+   "rel_magnitude": 0.05745041370391846,
+   "mean_act_norm": 282.7824401855469
+  }
+ ]
+}

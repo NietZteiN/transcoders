@@ -13,3 +13,6 @@ __pycache__/
 .claude/
 CLAUDE.md
 CLAUDE_SCRATCHPAD.md
+
+# SLURM job logs — absolute paths, node names, and noisy progress bars
+log/slurm/

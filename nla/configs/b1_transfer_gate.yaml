@@ -1,0 +1,66 @@
+# B1 — cross-model NLA transfer gate.
+#
+# First config in this directory. Every runner in nla/src/ currently carries its
+# hyperparameters as module constants, which transcoders/CLAUDE.md section 5 forbids
+# ("All hyperparameters, model/dictionary specs, layer choices, and pipeline configs must
+# live inside version-controlled configuration files in configs/"). Fixing that globally
+# would touch ten TARGET_MODEL sites and every module that imports them from
+# overnight_capture — a week of churn on banked-corpus code paths this paper does not run.
+# So the violation is retired incrementally: one config per experiment actually launched.
+#
+#   python -m src.transfer_gate run --config configs/b1_transfer_gate.yaml \
+#       --model Qwen/Qwen2.5-Coder-7B-Instruct --tag coder
+#
+# CLI flags override anything set here; the resolved values are recorded in the summary
+# JSON so a result can always be traced back to what actually ran.
+
+# ─── subject models ──────────────────────────────────────────────────────────────────
+# The control is the NLA's own training host. The subject is the model under test.
+# Both share tokenizer.json (same blob), chat template, hidden_size 3584, 28 layers,
+# 28 heads / 4 kv-heads, vocab 152064 — so identical inputs give identical token grids
+# and the comparison is exactly paired.
+control_model: Qwen/Qwen2.5-7B-Instruct
+subject_model: Qwen/Qwen2.5-Coder-7B-Instruct
+
+# ─── read geometry ───────────────────────────────────────────────────────────────────
+# layer_index is NOT a free parameter: the released AV/AR are trained for layer 20
+# (nla_meta.yaml: extraction_layer_index: 20) and cannot be swept. Stated as a limitation
+# in the paper rather than discovered later.
+layer_index: 20
+dataset: humaneval
+n_snippets: 200
+reads_per_snippet: 5
+max_new_read: 200
+
+# ─── determinism ─────────────────────────────────────────────────────────────────────
+# Project-wide seed. The foreign-null draw uses seed+1 and the cluster bootstrap seed+2,
+# so the null is reproducible without colliding with the corpus sample.
+seed: 20260724
+
+# ─── gate thresholds (plan v0.3, "Gate E1") ──────────────────────────────────────────
+# Frozen BEFORE the run. The own-vs-foreign check is the primary: it is attached to the
+# statistic that carries the verdict, not to a descriptive companion — the error that made
+# a confounded p=0.002 look like support in N8/HT14.
+#
+# DEVIATION from plan v0.3, declared here before the run: v0.3's gate led with
+# `fve_nrm >= 0.55` and `>= 0.75x control`. Both are dropped as criteria. FVE is
+# `1 - mean(2(1-cos))/denom`, so against a shared denominator it is a monotone restatement of
+# mean cosine and adds nothing, while against a per-split denominator the extra signal is how
+# dispersed each model's activations are — a property of the model, not of transfer. It is also
+# unstable at low n (the 3-snippet smoke returned -0.91 from a pipeline whose cosines were
+# fine). FVE is still reported for comparability with the reference's 0.6-0.8 band; the
+# criterion is now the cosine drop against the control on identical inputs.
+gates:
+  cos_median: 0.70         # established code-text round-trip band is 0.70-0.96
+  cos_delta_vs_control: 0.05   # max median-cosine drop below the control. FROZEN PRE-RUN.
+  norm_ratio: 2.0          # median act_norm within 2x of the ~100-170 Qwen L20 band
+  cjk_frac: 0.01           # mostly-CJK reads < 1% (the injection-failure signature)
+  own_minus_foreign: 0.0   # 95% CI on (own - foreign) cosine must exclude this
+
+# ─── serving ─────────────────────────────────────────────────────────────────────────
+# One whole card per arm: AV under sglang at mem-fraction-static 0.40 (~19.2 GB) +
+# subject model bf16 (~17 GB) + AR (~11 GB) is a tight but proven fit on a 48 GB A6000.
+# Port deliberately distinct from the other harnesses (30000 overnight/dense, 30001
+# malware, 30002/30003 deception, 30005 n10b, 30007 n13) so two runs cannot collide.
+sglang_url: http://localhost:30011
+mem_fraction_static: 0.40

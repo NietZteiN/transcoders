@@ -50,6 +50,10 @@ ASSISTANT_REPLY = (
 TARGET_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 LAYER_INDEX = 20
 EXPECTED_N_TOKENS = 101
+# The reference sequence ends with the assistant's end-of-turn token (its position 100
+# is token='<|im_end|>'): reply = 66 text tokens + <|im_end|> = 67. extract_chat appends
+# the reply verbatim, so the end-of-turn must be part of the reply string we pass.
+END_OF_TURN = "<|im_end|>"
 
 # "[  0]  PROMPT  token='<|im_start|>'  ||v||=235.7  mse_nrm=1.962  cos=0.019  fve_nrm=-1.674"
 ROW_RE = re.compile(
@@ -87,7 +91,7 @@ def stage_a(device: str, tol_rel: float) -> int:
     )
 
     ex = ActivationExtractor(TARGET_MODEL, LAYER_INDEX, device=device)
-    res = ex.extract_chat(USER_MESSAGE, ASSISTANT_REPLY, text_id="worked_example")
+    res = ex.extract_chat(USER_MESSAGE, ASSISTANT_REPLY + END_OF_TURN, text_id="worked_example")
     ex.close()
 
     n_got, n_exp = len(res.positions), len(expected)
@@ -156,7 +160,7 @@ def stage_b(device: str, sglang_url: str, tol_cos: float) -> int:
 
     expected = parse_expected()
     ex = ActivationExtractor(TARGET_MODEL, LAYER_INDEX, device=device)
-    res = ex.extract_chat(USER_MESSAGE, ASSISTANT_REPLY, text_id="worked_example")
+    res = ex.extract_chat(USER_MESSAGE, ASSISTANT_REPLY + END_OF_TURN, text_id="worked_example")
     ex.close()
 
     av = NLAClient(_NLA_ROOT / "data" / "checkpoints" / "av", sglang_url=sglang_url)

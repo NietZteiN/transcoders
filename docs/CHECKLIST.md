@@ -142,6 +142,38 @@ Feasibility: ⚠️ reasoning-Qwen lack pretrained SAEs (use R1-Distill-Qwen-1.5
 - [ ] **E3 PoC** attribution graphs on a supported small model (open `log/attribution-graphs/`).
 - [ ] **E7** triangulation on collected activations (open `log/triangulation/`) — run as soon as E1 + attention/ISF tables exist.
 
+### Instrument-2 sidebar (NLA — thread `log/nla-harness/`)
+- [x] **G0 gate:** replicate the reference worked example. *(2026-08-04: Stage A 0/101 over tol; Stage B median |Δcos| 0.0037. Three fixes: transformers-5.12 `return_dict` patch, `<|im_end|>` reply layout, `ninja` for flashinfer JIT.)*
+- [x] **Feasibility probe — NLAs out-of-the-box on code:** ✓ confirmed (44 reads). L0 reads name the true recurrence; L1b decoy/true mixture with **DRM_AR +0.047 toward decoy vs L0** (E1-direction signal); L2 reads say "state machine"; CoT reads track reasoning. Caveats: specifics confabulate; digit-piece tokens are noise.
+- [ ] **N1–N3 faithfulness program (HT9–HT11) — PARKED downstream** by user decision. Full staged design (agreement metric, leakage controls, reranking baselines, 4 intervention levers, gates G1–G3) lives in the plan file `~/.claude/plans/let-s-make-a-claude-md-recursive-pond.md`; promote into this checklist when un-parked.
+- [x] **Banked corpus** — 380 graded cases / 5,090 reads across all 5 tiers + synthetic slicing *(2026-08-05; tier accuracy non-monotone, reproducing the papers' L1b/L3 pattern out-of-the-box)*.
+- [x] **N4 first-error oracle** (instrument) — flagship known-answer gate PASSED 4/4; 41/117 localized. **0/140 wrong traces contain internally false arithmetic** — the model computes the wrong thing correctly. Precise per-case localization **unsolved** (D2 vs D3 agree 39%; D3 self-agrees 46%).
+- [x] **N5 dense capture** (instrument) — 91 length-matched wrong/control pairs, **4,653 reads**, ~4× read density, 0 errors, no instrument drift *(2026-08-06)*.
+- [x] **Pre-registration of HT12–HT14** — decision rules frozen (BH-FDR as one family) before any of N6–N8 ran *(2026-08-06)*.
+
+**Instrument-2 hypotheses (NLA faithfulness — HT12–HT14, pre-registered 2026-08-06):**
+
+| id | claim | experiment | status |
+|---|---|---|---|
+| **HT12** | Reconstruction faithfulness (`rt_cos`) predicts per-case correctness after controls. | N6 | **✗ refuted** *(2026-08-07)* — length-matched β = −0.0002, CI [−0.0051, +0.0047], p = .93; an **informative** null that excludes the banked effect size. The earlier "correct runs are more describable" gap is **a reply-length artifact** (wrong traces ~1.6× longer). |
+| **HT13** | CoT↔NLA judge alignment drops **specifically after** the first error (negative `correct × after_error` interaction; before-error simple effect's CI includes 0). | N7 | **not adjudicated — instrument null** *(2026-08-07)*. G1 shuffled-AUC 0.757 ✅, G2 beats the AR baseline ✅, but **G3 κ = 0.049** ❌: Phi-3.5 is a degenerate rater (91% one label, AUC 0.540) and judge-vs-AR per-item ρ = 0.032. The score separates populations but is not a stable per-item property. Exploratorily the interaction was **+0.023 (p=.22, wrong sign)** — a *global* late-trace decline, not a post-error one. |
+| **HT14** | The answer surfaces in NLA reads earlier in correct runs (log-rank p<.05, median ≥0.10 `u` earlier) over a foreign-answer null. | N8 | **✗ refuted** *(2026-08-07)* — 92% of cases never reach onset, so the median is undefined and the criterion unmeasurable. Own-answer hit rate **2.8% < 3.6% foreign null**: the reads do not carry the answer. The significant log-rank (p=.002) is an **answer-commonness confound** (wrong answers rarer/longer, p=1.3e-14) — the null guarded the trajectory, not the onset statistic. |
+
+- [x] **N7 (HT13)** — blinded judge alignment run: dataflow boundary verified (geometry gate 4,421/4,421), 5,653 items judged with 0 unparsed, shuffled + distant nulls, AR-space baseline, κ vs Phi-3.5. **Gate failed at G3 → instrument null.**
+- [x] **N8 (HT14)** — answer onset via NLA reads: foreign-answer null, Kaplan–Meier + tier-stratified log-rank at **case level** (the HT12 group-structure trap was checked and avoided in advance).
+- [x] **BH-FDR across {HT12, HT13, HT14}** — **vacuous, and recorded as such.** No p-value entered the family: HT12 was refuted by a pre-registered trigger, HT14 by an unmeasurable criterion, HT13 was never adjudicated. The absence of an FDR table is a result, not an oversight.
+- [x] **Artifact F1/F2** *(2026-08-07)* — refuted HT12 claim **retracted in place**; verdicts section added; faithfulness sort shipped with an honest caption and **nulls sorting last in both directions**; **alignment sort deliberately absent** (HT13 instrument-null), with the page saying why. `cotHTML` rebuilt on a token-span layer, fixing a genuine **highlight-misplacement** bug (old code clamped spans → shifted right; OLD misplaces 4/5, NEW 0/5). Bidirectional linking scrolls only the un-clicked pane; `role="button"` key handler added. Verified: 330 cases / 2,828 marks, 0 lost, 0 text corruption. Builder now version-controlled at `nla/tools/build_page.py`, tests at `nla/tests/`.
+
+- [x] **N9 confabulation rate** *(2026-08-07, exploratory)* — the standing "themes reliable, specifics confabulated" claim **measured**: 91% of 9,511 readings name a language, **37% wrongly**, and it is a **Python prior** (79.9% wrong on JavaScript vs 1.0% on Python), structured by read kind (code tokens 12% vs reasoning prose 46%). Round-trip faithfulness barely catches it (43.9% → 31.4% across quintiles; Q5−Q1 −12.5 pts, CI −18.6 to −6.5) — the sharpest measured demonstration that **recovery ≠ truth**. **Look-ahead/planning refuted** against a foreign-reading null (0.548 vs 0.532, CI spans zero).
+
+**Verdict summary — the Instrument-2 faithfulness family closed negatively, but informatively.** All
+three hypotheses failed against a *named mechanism* rather than for want of data, and in each case
+the mechanism was caught by a control written down in advance: reply length (HT12), answer-string
+commonness (HT14), and per-item unreliability of the judge score (HT13). The instrument-level
+findings that survive are the useful ones — NLA reads are theme-reliable but do not carry the
+model's eventual answer at L20, round-trip faithfulness tracks position/length rather than
+comprehension, and LLM-judged step alignment separates populations without ranking items.
+
 ### Phase 2 — Stretch
 - [ ] **E3 full** — decide whether to spend ~130–150 H100-hr on a trained CLT for Llama-3.1-8B, or stay at PoC scale.
 - [ ] **E5** cross-model comparison (RSA/CKA + probing primary; train coder-model SAE if the clean version is worth it).
@@ -169,4 +201,7 @@ Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUD
 
 ## Changelog
 - **2026-08-03** — Phase-0 progress recorded: scaffold tree + provenance/seed/gpu discipline **done**; `environment.yml` written + extraction harness built and smoke-tested **[~]** (env not created; batching/GQA/sink-tracking + `apply_dictionary` pending); annotated the remaining boxes with their landing zones (`configs/data.yaml`, `configs/dictionaries.yaml`). Status → Phase 0 in progress.
+- **2026-08-07c** — N9 exploratory addendum: confabulation rate measured (Python prior), planning refuted against a null.
+- **2026-08-07b** — Confirmatory family closed: HT13 not adjudicated (instrument null), HT14 refuted; BH-FDR recorded as vacuous. Verdict summary added.
+- **2026-08-07** — Instrument-2 sidebar expanded: banked corpus, N4/N5 instruments and the HT12–HT14 pre-registration recorded; **HT12 refuted** and the 2026-08-06 faithfulness↔correctness gap reclassified as a reply-length artifact. HT9–HT11 remain parked.
 - **2026-07-24** — Created. Formalized HT1–HT8 from the E1–E8 confirm/falsify conditions in `experiment_menu.md`; added the external attention H1–H4 that E7 triangulates; laid out the phased task list (Phase 0 infra → Phase 1 committed E1/E2/E3-PoC/E7+E4 → Phase 2 stretch → Phase 3 synthesis) and the discipline gate.

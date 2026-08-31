@@ -1,0 +1,82 @@
+{
+ "L2021_s1000": {
+  "p_at_1": 61.88255613126079,
+  "cases": 5790,
+  "correct": 3583,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "L2021_s2000": {
+  "p_at_1": 62.9706390328152,
+  "cases": 5790,
+  "correct": 3646,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "L2023_s1000": {
+  "p_at_1": 62.7979274611399,
+  "cases": 5790,
+  "correct": 3636,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "L2023_s2000": {
+  "p_at_1": 63.972366148531954,
+  "cases": 5790,
+  "correct": 3704,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "L2027_s1000": {
+  "p_at_1": 61.82065217391305,
+  "cases": 1472,
+  "correct": 910,
+  "runs": 167,
+  "snippets": 56,
+  "runs_unscorable": 0
+ },
+ "L2027_s2000": {
+  "p_at_1": 61.77685950413223,
+  "cases": 1452,
+  "correct": 897,
+  "runs": 165,
+  "snippets": 55,
+  "runs_unscorable": 0
+ },
+ "L20_s1000": {
+  "p_at_1": 63.5405872193437,
+  "cases": 5790,
+  "correct": 3679,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "L20_s2000": {
+  "p_at_1": 62.52158894645941,
+  "cases": 5790,
+  "correct": 3620,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "base_s1000": {
+  "p_at_1": 64.97409326424871,
+  "cases": 5790,
+  "correct": 3762,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ },
+ "base_s2000": {
+  "p_at_1": 64.17962003454231,
+  "cases": 5790,
+  "correct": 3716,
+  "runs": 492,
+  "snippets": 164,
+  "runs_unscorable": 0
+ }
+}

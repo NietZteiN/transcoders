@@ -1,0 +1,530 @@
+<title>Can We Tell When a Model Is Confused?</title>
+<style>
+  :root{
+    --ground:#FBFCFC; --surface:#F0F5F4; --ink:#0F1E1C; --muted:#4C6360;
+    --accent:#00695C; --rule:rgba(15,30,28,.14); --rule-soft:rgba(15,30,28,.07);
+    --serif:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,ui-serif,serif;
+    --sans:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+    --measure:66ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0B1413; --surface:#14201F; --ink:#E6EEED; --muted:#93A9A6;
+      --accent:#3FBFD4; --rule:rgba(230,238,237,.18); --rule-soft:rgba(230,238,237,.09);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0B1413; --surface:#14201F; --ink:#E6EEED; --muted:#93A9A6;
+    --accent:#3FBFD4; --rule:rgba(230,238,237,.18); --rule-soft:rgba(230,238,237,.09);
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--ground); color:var(--ink); font-family:var(--serif);
+    font-size:18px; line-height:1.62; margin:0;
+    padding:clamp(2rem,6vw,5rem) clamp(1.1rem,5vw,2rem) 6rem;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:var(--measure); margin-left:auto; margin-right:auto}
+  .wide{max-width:min(56rem,100%); margin-left:auto; margin-right:auto}
+  p,ul,ol{margin:0 0 1.15em}
+  h1,h2,h3{font-weight:600; text-wrap:balance; line-height:1.18; margin:0}
+  h1{font-size:clamp(2.1rem,5.6vw,3.15rem); letter-spacing:-.018em}
+  h2{font-size:clamp(1.45rem,3.4vw,1.85rem); letter-spacing:-.012em}
+  h3{font-size:1.12rem; letter-spacing:-.005em; margin-top:2rem}
+  a{color:var(--accent); text-underline-offset:.18em}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+  code,.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+  code{font-size:.86em; background:var(--surface); padding:.12em .34em; border-radius:3px}
+
+  .eyebrow{
+    font-family:var(--sans); font-size:.7rem; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 1.1rem;
+  }
+  .standfirst{font-size:1.2rem; color:var(--muted); margin:1.4rem 0 0}
+  .meta{
+    font-family:var(--sans); font-size:.76rem; color:var(--muted); line-height:1.9;
+    border-top:1px solid var(--rule); margin-top:2.2rem; padding-top:1rem;
+  }
+  .meta span{white-space:nowrap}
+  .meta span + span::before{content:"\00b7"; margin:0 .6em; opacity:.5}
+
+  section{margin-top:3.6rem}
+  .stage-head{display:flex; gap:1rem; align-items:baseline; margin:2.2rem 0 1rem}
+  .stage-head h3{margin-top:0}
+  .stage-num{
+    font-family:var(--mono); font-size:.8rem; color:var(--muted);
+    border:1px solid var(--rule); border-radius:999px; padding:.16rem .6rem; flex:none;
+  }
+
+  .readout{
+    border:1px solid var(--rule); border-radius:4px; background:var(--surface);
+    padding:1.3rem 1.4rem; margin:2rem 0; display:grid; gap:0;
+  }
+  .rline{
+    display:grid; grid-template-columns:1fr auto auto; gap:.9rem; align-items:baseline;
+    padding:.62rem 0; border-bottom:1px solid var(--rule-soft);
+  }
+  .rline:last-child{border-bottom:0}
+  .rline .what{font-size:.98rem}
+  .rline .val{font-family:var(--mono); font-size:.9rem; color:var(--muted)}
+  .tag{
+    font-family:var(--sans); font-size:.63rem; font-weight:700; letter-spacing:.1em;
+    text-transform:uppercase; padding:.2rem .5rem; border-radius:3px;
+    border:1px solid var(--rule); color:var(--muted); white-space:nowrap;
+  }
+  .tag.pos{color:var(--accent); border-color:var(--accent)}
+
+  figure{margin:2.6rem 0}
+  figure svg{display:block; width:100%; height:auto}
+  .figbox{border:1px solid var(--rule); border-radius:4px; background:var(--surface); padding:1.4rem 1.2rem .9rem}
+  figcaption{
+    font-family:var(--sans); font-size:.79rem; line-height:1.55; color:var(--muted);
+    margin-top:.9rem; max-width:60ch;
+  }
+  .scroll{overflow-x:auto}
+  table{border-collapse:collapse; width:100%; font-size:.88rem; margin:.4rem 0 .2rem}
+  caption{
+    font-family:var(--sans); font-size:.68rem; font-weight:600; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--muted); text-align:left; padding-bottom:.6rem;
+  }
+  th,td{padding:.5rem .7rem; text-align:left; border-bottom:1px solid var(--rule-soft); vertical-align:baseline}
+  thead th{
+    font-family:var(--sans); font-size:.68rem; font-weight:600; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--rule);
+  }
+  td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  .hl td{color:var(--accent)}
+
+  blockquote{
+    margin:1.5rem 0; padding:.1rem 0 .1rem 1.2rem; border-left:2px solid var(--rule);
+    color:var(--muted); font-size:.97rem;
+  }
+  .reads{
+    font-family:var(--mono); font-size:.78rem; line-height:1.6; color:var(--muted);
+    background:var(--surface); border:1px solid var(--rule); border-radius:4px;
+    padding:1rem 1.1rem; margin:1.2rem 0;
+  }
+  .reads b{
+    color:var(--ink); font-weight:600; font-family:var(--sans); font-size:.7rem;
+    letter-spacing:.1em; text-transform:uppercase; display:block; margin-bottom:.55rem;
+  }
+  .reads div{padding:.22rem 0}
+  .matrix{width:100%; border-collapse:collapse; font-size:.86rem; margin:.5rem 0}
+  .matrix td,.matrix th{border:1px solid var(--rule); padding:.85rem .8rem}
+  .matrix th{
+    font-family:var(--sans); font-size:.68rem; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; background:var(--surface);
+  }
+  .matrix .target{color:var(--accent)}
+  hr{border:0; border-top:1px solid var(--rule); margin:3.2rem auto}
+  .foot{font-family:var(--sans); font-size:.79rem; color:var(--muted); line-height:1.7}
+</style>
+
+<article>
+<header class="wrap">
+  <p class="eyebrow">Instrument 2 &middot; NLA &middot; Experiment N13</p>
+  <h1>Can we tell when a model is confused?</h1>
+  <p class="standfirst">We built a way to measure whether a language model is <em>torn</em> between
+  two readings of a program &mdash; then tested three internal signals against it. All three came
+  back empty, for one reason we did not see coming.</p>
+  <p class="meta">
+    <span>2026-08-15</span><span>Qwen2.5-7B-Instruct, layer 20</span><span>seed 20260724</span><span>one GPU</span><span>4 stages, 0 errors</span>
+  </p>
+</header>
+
+<div class="wrap">
+  <div class="readout" role="group" aria-label="Summary of findings">
+    <div class="rline"><span class="what">Round-trip faithfulness detects torn-ness</span><span class="val">AUC 0.470</span><span class="tag">Null</span></div>
+    <div class="rline"><span class="what">Residual-stream magnitude detects torn-ness</span><span class="val">AUC 0.432</span><span class="tag">Null</span></div>
+    <div class="rline"><span class="what">Read instability detects torn-ness</span><span class="val">AUC 0.424</span><span class="tag">Null</span></div>
+    <div class="rline"><span class="what">Misleading names <em>induce</em> torn-ness</span><span class="val">&minus;0.011 &plusmn; 0.08</span><span class="tag">Null</span></div>
+    <div class="rline"><span class="what"><strong>Answer instability predicts correctness</strong></span><span class="val">AUC 0.869</span><span class="tag pos">Supported</span></div>
+  </div>
+
+  <p>The question came from an ordinary observation: a person reading the phrase
+  <em>&ldquo;a plus b squared&rdquo;</em> genuinely cannot tell whether it means <code>a + b&sup2;</code>
+  or <code>(a+b)&sup2;</code>. They hold both at once. We wanted to know whether a language model ever
+  does the same thing, and whether anything measurable inside it would show us.</p>
+
+  <p>The answer is no &mdash; not with any instrument we have. But the <em>reason</em> is more useful
+  than the result, so this report is written to be readable with no prior context.</p>
+</div>
+
+<hr class="wrap">
+
+<section class="wrap">
+  <h2>1 &middot; What we are working with</h2>
+
+  <h3>Making a neural network&rsquo;s internal state readable</h3>
+  <p>A language model pushes text through roughly 28 stacked layers. At every layer, each word
+  position holds a vector of 3,584 numbers &mdash; the <strong>residual stream</strong>. That vector
+  is the model&rsquo;s working state at that moment, and on its own it is unreadable.</p>
+
+  <p>A <strong>Natural Language Autoencoder</strong> is a pair of small trained models that turn it
+  into English:</p>
+  <ul>
+    <li>The <strong>verbalizer</strong> takes one vector and returns a sentence describing it.</li>
+    <li>The <strong>reconstructor</strong> takes a sentence and returns a vector.</li>
+  </ul>
+
+  <p>Because it runs both ways, the description can be checked. Take a vector, describe it, turn the
+  description back into a vector, and measure how close that is to the original. That number is the
+  instrument&rsquo;s <strong>faithfulness</strong>: how much of the state survived the trip through
+  English. Everything here uses released, frozen checkpoints. Nothing was trained.</p>
+
+  <h3>Deliberately obscured code</h3>
+  <p>The wider project studies how models read code that has been made hard to read on purpose. Every
+  program appears at five tiers, from the original through meaningless renaming, control-flow
+  scrambling, and all of it at once. One tier matters most here: <strong>the decoy</strong>, where
+  identifiers are renamed to <em>misleading</em> ones, so the code does one thing while its names
+  claim another. It is a Stroop test made of source code.</p>
+
+  <h3>What we already knew</h3>
+  <p>Two earlier results set this up. First, <strong>faithfulness does not predict whether the model
+  gets the answer right</strong> &mdash; we tested that and refuted it (p&nbsp;=&nbsp;.93). The
+  apparent effect was length: wrong reasoning runs about 1.6&times; longer, and faithfulness rises
+  with how much the verbalizer had to say.</p>
+
+  <p>Second, faithfulness behaves like a <strong>describability</strong> meter. Meaningless renames
+  read worst; real function names read best. And strikingly, <em>misleading names read exactly as
+  well as honest ones</em> &mdash; 0.879 against 0.878. A decoy supplies meaning that is wrong but
+  perfectly describable.</p>
+</section>
+
+<section class="wrap">
+  <h2>2 &middot; Why &ldquo;was it right?&rdquo; cannot answer this</h2>
+  <p>Faithfulness failing to predict correctness does not settle whether it detects confusion,
+  because <strong>&ldquo;wrong&rdquo; conceals two opposite internal states</strong>.</p>
+
+  <div class="scroll">
+  <table class="matrix">
+    <caption>The distinction correctness cannot see</caption>
+    <thead><tr><th scope="col"></th><th scope="col">Same answer every time</th><th scope="col">Different answers</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Right</th><td>Confidently right</td><td>Lucky</td></tr>
+      <tr><th scope="row">Wrong</th>
+          <td><strong>Confidently wrong</strong><br>one reading, firmly held, mistaken</td>
+          <td class="target"><strong>Torn</strong><br>two readings, unresolved</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Both bottom cells score as failures. A metric that merely tracks correctness can never separate
+  them; a metric that tracks torn-ness would. And <strong>nothing in the project could see this
+  distinction</strong>, for a mundane reason: every stored run was a single deterministic generation.
+  One sample cannot tell you whether the model would have said the same thing ten times. The missing
+  axis had to be built.</p>
+</section>
+
+<section class="wrap">
+  <h2>3 &middot; What we built</h2>
+  <p>Four stages, run back to back, unattended, on one GPU.</p>
+
+  <div class="stage-head"><span class="stage-num">01</span><h3>A measure of torn-ness</h3></div>
+  <p>Sample <strong>eight answers per problem</strong> at a temperature that permits variation, for
+  all 330 problems, then measure the disagreement between them. An item where all eight agree scores
+  zero; an item producing eight different answers scores one.</p>
+  <p>The prompt builder and answer grader were <em>imported unchanged</em> from the original capture
+  code rather than rewritten &mdash; rewriting them cost four bugs in an earlier experiment. As a
+  check, we regenerated the deterministic answers and confirmed they reproduced the stored ones
+  exactly: <strong>8 of 8</strong>.</p>
+
+  <div class="stage-head"><span class="stage-num">02</span><h3>Recovering a signal we had never tested</h3></div>
+  <p>The <strong>magnitude</strong> of the state vector is the most obvious alternative to
+  faithfulness, and the project had never tested it against anything &mdash; purely by accident,
+  because it had only ever been stored on data with no correctness labels. One forward pass per case
+  recovered it at all 5,090 stored positions.</p>
+  <p>Each stored reading had recorded the exact token it came from, so we could verify that
+  re-extraction still landed on that token: <strong>5,090 of 5,090</strong>, none dropped, no
+  outliers.</p>
+
+  <div class="stage-head"><span class="stage-num">03</span><h3>Read instability &mdash; the real candidate</h3></div>
+  <p>This is the measurement whose <em>construction matches the phenomenon</em>, and the one we
+  expected to work. Faithfulness asks whether one sentence carried the vector. Instability asks
+  whether the vector <em>has</em> one sentence:</p>
+  <blockquote>Describe the same vector five separate times, and measure how much the five
+  descriptions disagree.</blockquote>
+  <p>A state holding one interpretation should describe consistently. A state holding two
+  incompatible interpretations should not. Agreement is measured by mapping each sentence back into
+  vector space, so paraphrases count as agreement rather than disagreement &mdash; and a plain
+  word-overlap score runs alongside it, because an earlier attempt to use an AI judge failed badly.</p>
+  <p>We sampled 400 positions, 2,000 readings. Two comparisons carry the argument. <strong>Function
+  names in clean code</strong> are the most describable thing in the corpus, so they set the
+  <em>floor</em>: if they wobble as much as everything else, we are measuring randomness in the
+  describer, not the model. And <strong>decoy names against meaningless names</strong> &mdash;
+  identical in shape, differing only in whether the name asserts a confident wrong meaning &mdash;
+  separates the two ways instability can arise: two readings present, or <em>none</em>.</p>
+
+  <div class="stage-head"><span class="stage-num">04</span><h3>The comparison</h3></div>
+  <p>Does any internal signal explain answer instability <em>beyond the length of the reasoning</em>?
+  Length is the yardstick because length is what dismantled the earlier result. And separately: do
+  torn and confidently-wrong items &mdash; matched for length &mdash; differ on any metric at all?</p>
+</section>
+
+<section class="wrap">
+  <h2>4 &middot; Results</h2>
+
+  <h3>The decoy does not make the model torn</h3>
+  <p>Misleading identifiers produce <strong>no more</strong> answer instability than the untouched
+  original: <span class="num">&minus;0.011</span>, 95% interval
+  <span class="num">[&minus;0.098, +0.071]</span> across 54 length-matched pairs. An interim look at
+  19 pairs suggested a strong positive effect, and it reversed once the data were complete.</p>
+
+  <h3>All three internal signals are empty</h3>
+</section>
+
+<figure class="wide">
+  <div class="figbox">
+    <svg viewBox="0 0 720 260" role="img" aria-labelledby="nullchart-t">
+      <title id="nullchart-t">Discrimination between torn and confidently-wrong items. All three
+      metrics sit at chance, with confidence intervals crossing 0.5.</title>
+      <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="12">
+        <g stroke="var(--rule-soft)" stroke-width="1">
+          <line x1="230" y1="46" x2="230" y2="196"></line>
+          <line x1="360" y1="46" x2="360" y2="196"></line>
+          <line x1="490" y1="46" x2="490" y2="196"></line>
+          <line x1="620" y1="46" x2="620" y2="196"></line>
+        </g>
+        <line x1="403.3" y1="34" x2="403.3" y2="200" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"></line>
+        <text x="403.3" y="26" fill="var(--muted)" text-anchor="middle" font-size="11">chance &middot; 0.50</text>
+        <g fill="var(--ink)">
+          <text x="212" y="72" text-anchor="end" font-size="13">faithfulness</text>
+          <text x="212" y="122" text-anchor="end" font-size="13">state magnitude</text>
+          <text x="212" y="172" text-anchor="end" font-size="13">read instability</text>
+        </g>
+        <g stroke="var(--muted)" stroke-width="2" stroke-linecap="round">
+          <line x1="255.1" y1="68" x2="504.7" y2="68"><title>faithfulness &mdash; 95% CI 0.329 to 0.617</title></line>
+          <line x1="223.1" y1="118" x2="475.3" y2="118"><title>state magnitude &mdash; 95% CI 0.292 to 0.583</title></line>
+          <line x1="151.1" y1="168" x2="535.9" y2="168"><title>read instability &mdash; 95% CI 0.209 to 0.653</title></line>
+        </g>
+        <g fill="var(--ink)">
+          <circle cx="377.3" cy="68" r="5.5"><title>faithfulness AUC 0.470</title></circle>
+          <circle cx="344.4" cy="118" r="5.5"><title>state magnitude AUC 0.432</title></circle>
+          <circle cx="337.5" cy="168" r="5.5"><title>read instability AUC 0.424</title></circle>
+        </g>
+        <g fill="var(--muted)" font-family="ui-monospace,monospace" font-size="11">
+          <text x="377.3" y="54" text-anchor="middle">0.470</text>
+          <text x="344.4" y="104" text-anchor="middle">0.432</text>
+          <text x="337.5" y="154" text-anchor="middle">0.424</text>
+        </g>
+        <line x1="100" y1="200" x2="620" y2="200" stroke="var(--rule)" stroke-width="1"></line>
+        <g fill="var(--muted)" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">
+          <text x="100" y="218">0.15</text><text x="230" y="218">0.30</text>
+          <text x="360" y="218">0.45</text><text x="490" y="218">0.60</text><text x="620" y="218">0.75</text>
+        </g>
+        <text x="360" y="243" fill="var(--muted)" text-anchor="middle" font-size="11.5">discrimination between torn and confidently-wrong items (AUC)</text>
+      </g>
+    </svg>
+  </div>
+  <figcaption>Every metric sits at chance, and every interval crosses 0.50. Items were matched on
+  reasoning length first, so this is not length in disguise &mdash; length itself discriminates at
+  0.485.</figcaption>
+</figure>
+
+<section class="wrap">
+  <div class="scroll">
+  <table>
+    <caption>Explaining answer instability, beyond reasoning length</caption>
+    <thead><tr><th scope="col">Predictor</th><th class="n" scope="col">Variance explained</th><th class="n" scope="col">p</th><th scope="col">Beats length?</th></tr></thead>
+    <tbody>
+      <tr><td>reasoning length alone</td><td class="n">0.344</td><td class="n">.001</td><td>&mdash;</td></tr>
+      <tr><td>+ faithfulness</td><td class="n">0.345</td><td class="n">.606</td><td>no</td></tr>
+      <tr><td>+ state magnitude</td><td class="n">0.345</td><td class="n">.409</td><td>no</td></tr>
+      <tr><td>+ read instability</td><td class="n">0.354</td><td class="n">.234</td><td>no</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="margin-top:1.2rem"><strong>Length alone explains 34% of the variation in answer
+  instability.</strong> Every internal signal competes for the remaining couple of percent, and none
+  of them wins it.</p>
+
+  <h3>The reason: we measured the same thing twice</h3>
+  <p>Sorting the six kinds of token by how unstable their readings are produces almost exactly the
+  same order as sorting them by faithfulness &mdash; inverted.</p>
+</section>
+
+<figure class="wide">
+  <div class="figbox">
+    <svg viewBox="0 0 720 330" role="img" aria-labelledby="mirror-t">
+      <title id="mirror-t">Token classes ranked by reading stability versus ranked by faithfulness.
+      The two orderings are nearly identical, so the connecting lines run almost flat.</title>
+      <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="12">
+        <text x="196" y="30" fill="var(--muted)" text-anchor="end" font-size="11" letter-spacing="1.2">MOST STABLE READINGS</text>
+        <text x="524" y="30" fill="var(--muted)" text-anchor="start" font-size="11" letter-spacing="1.2">MOST DESCRIBABLE</text>
+        <line x1="230" y1="44" x2="230" y2="296" stroke="var(--rule)" stroke-width="1"></line>
+        <line x1="490" y1="44" x2="490" y2="296" stroke="var(--rule)" stroke-width="1"></line>
+        <g stroke="var(--muted)" stroke-width="1.75" fill="none">
+          <path d="M230 60 L490 60"><title>function name &mdash; stability rank 1, faithfulness rank 1</title></path>
+          <path d="M230 104 L490 104"><title>original name &mdash; stability rank 2, faithfulness rank 2</title></path>
+          <path d="M230 148 L490 148"><title>decoy name &mdash; stability rank 3, faithfulness rank 3</title></path>
+          <path d="M230 192 L490 280"><title>meaningless rename &mdash; stability rank 4, faithfulness rank 6</title></path>
+          <path d="M230 236 L490 192"><title>answer line &mdash; stability rank 5, faithfulness rank 4</title></path>
+          <path d="M230 280 L490 236"><title>chain of thought &mdash; stability rank 6, faithfulness rank 5</title></path>
+        </g>
+        <g fill="var(--ink)">
+          <circle cx="230" cy="60" r="4"></circle><circle cx="230" cy="104" r="4"></circle>
+          <circle cx="230" cy="148" r="4"></circle><circle cx="230" cy="192" r="4"></circle>
+          <circle cx="230" cy="236" r="4"></circle><circle cx="230" cy="280" r="4"></circle>
+          <circle cx="490" cy="60" r="4"></circle><circle cx="490" cy="104" r="4"></circle>
+          <circle cx="490" cy="148" r="4"></circle><circle cx="490" cy="192" r="4"></circle>
+          <circle cx="490" cy="236" r="4"></circle><circle cx="490" cy="280" r="4"></circle>
+        </g>
+        <g fill="var(--ink)" text-anchor="end" font-size="12.5">
+          <text x="216" y="64">function name</text><text x="216" y="108">original name</text>
+          <text x="216" y="152">decoy name</text><text x="216" y="196">meaningless rename</text>
+          <text x="216" y="240">answer line</text><text x="216" y="284">chain of thought</text>
+        </g>
+        <g fill="var(--ink)" text-anchor="start" font-size="12.5">
+          <text x="504" y="64">function name</text><text x="504" y="108">original name</text>
+          <text x="504" y="152">decoy name</text><text x="504" y="196">answer line</text>
+          <text x="504" y="240">chain of thought</text><text x="504" y="284">meaningless rename</text>
+        </g>
+        <text x="360" y="320" fill="var(--muted)" text-anchor="middle" font-size="11.5">rank correlation across classes: &minus;0.958</text>
+      </g>
+    </svg>
+  </div>
+  <figcaption>Two supposedly different instruments ranking six kinds of token in nearly the same
+  order. Flat lines mean agreement; only the bottom three swap places. Per individual reading the
+  correlation is &minus;0.757; across classes it is &minus;0.958.</figcaption>
+</figure>
+
+<section class="wrap">
+  <p><strong>Read instability is not a new instrument. It is describability, measured a second
+  way.</strong> A state that is hard to describe also gets described inconsistently. That single fact
+  accounts for everything else we saw:</p>
+  <ul>
+    <li><strong>The floor check passes</strong> &mdash; decoy tokens really are less stable than
+    function names. So the measurement works. It simply discriminates <em>describability</em>, not
+    ambiguity.</li>
+    <li><strong>The decisive comparison is empty</strong> &mdash; decoy names against meaningless
+    names comes out at <span class="num">&minus;0.002</span>, interval
+    <span class="num">[&minus;0.006, +0.003]</span>. If anything, <em>meaningless</em> names are the
+    less stable ones.</li>
+    <li><strong>A decoy is not a second reading.</strong> It supplies one confident wrong meaning
+    &mdash; exactly what the earlier 0.879-against-0.878 result implied.</li>
+  </ul>
+
+  <h3>What instability actually looks like</h3>
+  <p>The steadiest reading in the corpus sits on a function name. Five independent descriptions:</p>
+  <div class="reads">
+    <b>Token <code>unique</code> &mdash; five descriptions</b>
+    <div>1 &middot; &ldquo;Code snippet format with TypeScript / JavaScript context &hellip; array operations or filtering&rdquo;</div>
+    <div>2 &middot; &ldquo;JavaScript code snippet &hellip; const variable definition &hellip; a sample array&rdquo;</div>
+    <div>3 &middot; &ldquo;JavaScript code snippet &hellip; comment prompt structure (&ldquo;const unique&rdquo;) &hellip; array operations&rdquo;</div>
+    <div>4 &middot; &ldquo;TypeScript/JavaScript syntax &hellip; array filtering or uniqueness checks&rdquo;</div>
+    <div>5 &middot; &ldquo;JavaScript code snippet &hellip; ES6 syntax to filter an array&rdquo;</div>
+  </div>
+  <p>Five different sentences, one consistent meaning. Now the <em>least</em> steady reading, which
+  sits on a run of whitespace:</p>
+  <div class="reads">
+    <b>Token: whitespace &mdash; five descriptions</b>
+    <div>1 &middot; &ldquo;&hellip; Python DataFrame state transitions &hellip;&rdquo;</div>
+    <div>2 &middot; &ldquo;&hellip; an FSM state machine in a TDD context &hellip;&rdquo;</div>
+    <div>3 &middot; &ldquo;&hellip; state transitions from a finance model &hellip;&rdquo;</div>
+    <div>4 &middot; &ldquo;&hellip; state machine for a finance app, Enum pattern &hellip;&rdquo;</div>
+    <div>5 &middot; &ldquo;&hellip; a sequence diagram &hellip; using GameState &hellip;&rdquo;</div>
+  </div>
+  <p>All five agree on the <em>form</em> &mdash; structured Python with numbered steps &mdash; and
+  invent a different subject each time. That is not a model torn between two readings of the code.
+  That is a describer confabulating because the state gave it nothing to say. <strong>Instability
+  marks emptiness, not conflict.</strong></p>
+
+  <h3>The one thing that did work</h3>
+  <p>How often the model changes its answer predicts whether it is right, at
+  <strong>AUC 0.869</strong> &mdash; mean instability 0.668 when wrong against 0.240 when right. This
+  is the known self-consistency effect, and it fell out as a by-product. It is a <em>better</em>
+  correctness signal than anything the interpretability instrument provides.</p>
+  <p>Worth noting too: confident wrongness is <strong>rare</strong>. Only 6 of 107 wrong items gave
+  the same answer all eight times, against 83 of 223 correct ones. On this material, being wrong and
+  being unstable nearly coincide.</p>
+</section>
+
+<hr class="wrap">
+
+<section class="wrap">
+  <h2>5 &middot; Two errors we caught</h2>
+  <p>While pulling examples for this write-up, two of the three &ldquo;confidently wrong&rdquo; items
+  turned out to be <strong>scoring artifacts rather than model behaviour</strong>. In one, the answers
+  <code>**[]</code> and <code>[]</code> were counted as different &mdash; markdown bold splitting a
+  single answer in two. In another, two dictionaries with identical contents in different key order
+  were counted as different.</p>
+  <p>The comparator stripped spaces and quotes but not emphasis markers. <strong>36% of items
+  contained one somewhere.</strong> This is not cosmetic: answer instability is the <em>outcome
+  variable</em>, and inflating it adds noise &mdash; and noise in an outcome <em>weakens</em>
+  associations. A null could have been an artifact of the label rather than a fact about the model.
+  We re-ran everything with a hardened comparator.</p>
+
+  <div class="scroll">
+  <table>
+    <caption>Before and after fixing the comparator</caption>
+    <thead><tr><th scope="col">Result</th><th class="n" scope="col">Original</th><th class="n" scope="col">Corrected</th></tr></thead>
+    <tbody>
+      <tr><td>read instability beats length (p)</td><td class="n">.029</td><td class="n">.234</td></tr>
+      <tr><td>faithfulness beats length (p)</td><td class="n">.402</td><td class="n">.606</td></tr>
+      <tr><td>state magnitude beats length (p)</td><td class="n">.983</td><td class="n">.409</td></tr>
+      <tr class="hl"><td>answer instability predicts correctness (AUC)</td><td class="n">0.843</td><td class="n">0.869</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>The one borderline positive did not survive.</strong> Read instability&rsquo;s edge over
+  length went from p&nbsp;=&nbsp;.029 to .234, while the behavioural finding got <em>stronger</em>.
+  Both movements are diagnostic: removing label noise should push a spurious result toward nothing
+  and a real one further from it. Every number in this report is the corrected one.</p>
+
+  <p>We also caught a <strong>statistical error that would have made a false positive the
+  headline</strong>. Each signal was originally judged by resampling its gain in explained variance
+  and asking whether the interval excluded zero. But that gain <em>cannot be negative</em> &mdash;
+  adding any column to a regression never lowers the fit &mdash; so the interval excludes zero almost
+  regardless of the data. On synthetic data with three predictors we knew to be pure noise, all three
+  came back &ldquo;significant.&rdquo; Replaced with a shuffle test, the same data gave
+  p&nbsp;=&nbsp;.51&ndash;.58.</p>
+</section>
+
+<section class="wrap">
+  <h2>6 &middot; What it means</h2>
+  <p><strong>On the original question:</strong> faithfulness cannot signal confusion. Neither can the
+  state&rsquo;s magnitude, nor read instability. Not because the measurements were poor, but because
+  all three are measuring <em>describability</em>, which is dominated by length. Faithfulness is not
+  lower on code the model finds confusing &mdash; it is lower where there is <em>less to say</em>.</p>
+  <p><strong>On the instrument:</strong> this is a sharper account of what faithfulness is than we had
+  before, and it survived a test built to break it.</p>
+  <p><strong>On the trap:</strong> misleading names make the model <em>wrong</em>, not <em>torn</em>.
+  They do not install a competing interpretation it wavers between; they install a confident wrong
+  one.</p>
+
+  <h3>Limits</h3>
+  <ul>
+    <li>One model, one layer, one temperature setting. Torn-ness could be real but not
+    <em>linearly readable</em> at this layer, in which case a single number per position was never
+    going to find it.</li>
+    <li>Read instability averages under two positions per problem, so the per-problem term is
+    underpowered; the per-reading comparisons are the well-supported ones.</li>
+    <li>Exploratory throughout, not pre-registered. Nothing here claims statistical significance
+    &mdash; the nulls are informative, not proof of absence.</li>
+  </ul>
+
+  <h3>Next</h3>
+  <ol>
+    <li><strong>Sweep the layers.</strong> The cheapest remaining test of the &ldquo;not readable at
+    this depth&rdquo; explanation.</li>
+    <li><strong>Induce torn-ness properly.</strong> Misleading names demonstrably do not. A real test
+    needs genuinely ambiguous programs with two defensible answers &mdash; a stimulus-design problem,
+    not a measurement one.</li>
+    <li><strong>Treat answer instability as the bar.</strong> At AUC 0.869 it beats every internal
+    signal here. Any future claim that an internal measurement is useful has to clear it.</li>
+  </ol>
+</section>
+
+<hr class="wrap">
+
+<footer class="wrap foot">
+  <p>330 problems &middot; 2,640 sampled answers &middot; 5,090 recovered state vectors &middot;
+  2,000 verbalizations &middot; 4 stages &middot; 0 errors &middot; seed 20260724.</p>
+  <p>Verification: deterministic answers reproduced 8/8; re-extracted positions matched their stored
+  tokens 5,090/5,090; 91 unit tests pass. Full method and raw numbers in the project ledger under
+  <code>log/nla-harness/</code>, dated 2026-08-15, together with its correction addendum.</p>
+</footer>
+</article>
