@@ -186,6 +186,65 @@ comprehension, and LLM-judged step alignment separates populations without ranki
 
 ---
 
+### Phase G — Model-constraint port to Gemma *(added 2026-08-31; supersedes the Qwen host)*
+
+**Constraint:** no Chinese-origin models going forward. This excludes `Qwen2.5-7B-Instruct` (the
+Instrument-2 subject) and five of the seven panel models. Panel survivors: **Llama-3.1-8B** (Meta),
+**Phi-3.5-mini** (Microsoft), **SmolLM3-3B** (HuggingFace). Judgment call outstanding:
+DeepSeek-R1-Distill-Llama-8B (Llama base, DeepSeek distillation).
+
+**Instrument 3 is barely affected.** `Llama-3.1-8B-Instruct` is the only panel model with **both**
+pretrained SAEs and transcoders (Llama Scope, EleutherAI, Goodfire l19 on *Instruct*), and it is
+cached. `Gemma-2-2B` remains the mandated smoke-test model and has native `circuit-tracer` support,
+so [`../CLAUDE.md`](../CLAUDE.md) §4's small-model requirement is *easier* to satisfy, not harder.
+
+**Instrument 2 is a port, not a rebuild.** Three of the four released NLA pairs are non-Chinese —
+`kitft/nla-gemma3-12b-L32-{av,ar}`, `kitft/nla-gemma3-27b-L41-{av,ar}`,
+`kitft/Llama-3.3-70B-NLA-L53-{av,ar}`. **Gemma-3-12B-IT (L32/48, d = 3840) is the recommended
+successor** because it is the only host with *both* an NLA pair and a dictionary suite — which
+would put Instruments 2 and 3 on one model for the first time and make E7 triangulation stronger
+than it was. Llama-3.3-70B is an 8×H100 job, not an A6000 one.
+
+**G-A · Instrument validation** *(blocks everything below)*
+- [ ] Download `google/gemma-3-12b-it` + the AV/AR pair into `HF_HOME`; record shas.
+- [ ] **Fix `_layers()` in BOTH `nla/src/extract.py` and `nla/src/steer.py`** — Gemma-3 loads as
+      `Gemma3ForConditionalGeneration`, so decoder layers sit at `model.language_model.layers`;
+      the current probe order `("model.layers", "model.model.layers", "transformer.h")` will
+      **fail to find them**. The two files must stay in sync.
+- [ ] Run the **layer-indexing gate** (`nla/src/p04_gate.py --layers …`) at L32 — it verifies the
+      read site and write site are the same block, which is exactly what the two-file edit risks.
+- [ ] **G0 replication gate** on the native pair. *This is the decision point.* A failure here is a
+      finding about the released Gemma checkpoints, **not** a repeat of B1 (which used a Qwen NLA
+      on a different model; this is the supported native configuration).
+- [ ] α = 0 identity test for the write hook — byte-identical to unsteered.
+- [ ] Confirm the `sqrt_d_model` embedding convention (`arch_adapters.py`: `gemma3`) does not break
+      the AV/AR interface. The steering hook itself is scale-free (unit-normalised direction ×
+      local ‖h‖), so injection should be unaffected.
+
+**G-B · Behavioural baseline** — 5 tiers × 60 items × **10 draws** = 3,000 generations, five jobs
+in parallel (~½ day). Ten draws, not one: graded k/N labels are what made curve shapes identifiable
+(`log/nla-harness/2026-08-30_p1b-graded-labels.md`).
+- [ ] Validate `build_call` on Gemma's tokenizer for all five tiers before generating.
+- [ ] Record `l0_reply_chars` **and** `l1b_reply_chars` (the omission that blocked a tier result).
+- [ ] Run at `--max-new-gen 2048`; at 1,100 the parse rate is 0.8833 and ~12% of items are scored
+      wrong for not finishing.
+
+**G-C · Read-side battery** *(~1 day; every script exists)* — dense probes with per-tier length
+baselines, the five-tier ladder, the span probe with its repetition control, position × depth.
+48 layers instead of 28 gives finer depth resolution than the Qwen run had.
+
+**G-D · Causal arm** *(2–3 days)* — V1–V5 sweep (~1,800 generations) plus the P0.1–P0.4
+equivalents (~2,700).
+
+**Estimate ≈ one week**, mostly unattended, conditional on G0 passing first time. Throughput
+anchor: 7B at a 2,048 budget ran ~7.5 gen/min on H200 this week; 12B scales to ≈4/min.
+
+**Not re-done:** stimuli, scripts, frozen decision rules, the nineteen-item failure list, and the
+whole measurement stack (graded labels, per-tier baselines, selection-free statistics, the
+reproducibility-floor protocol). **No number from the Qwen programme survives a host change** — the
+host, the layer (20 → 32) and d_model (3584 → 3840) all differ, so G0 gates everything.
+
+
 ## 4. Per-experiment "definition of done" (discipline gate)
 Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUDE.md) §4):
 - [ ] Deterministic **seed** set and recorded; variance across ≥2 seeds/conditions noted.
@@ -200,6 +259,7 @@ Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUD
 ---
 
 ## Changelog
+- **2026-08-31** — **Phase G added**: model-constraint port to Gemma. No Chinese-origin models going forward removes `Qwen2.5-7B-Instruct` (the Instrument-2 host) and five of seven panel models. Instrument 3 is barely affected — `Llama-3.1-8B` is the only panel model with both SAEs and transcoders, and `Gemma-2-2B` (circuit-tracer native) still serves the mandated smoke test. Instrument 2 ports rather than dies: three of four released NLA pairs are non-Chinese, and **Gemma-3-12B-IT is the recommended successor** as the only host with both an NLA pair and a dictionary suite. Two integration facts recorded before any GPU time: `_layers()` will fail on `Gemma3ForConditionalGeneration`, and Gemma normalises embeddings by √d. Estimate ≈ 1 week, gated on G0.
 - **2026-08-03** — Phase-0 progress recorded: scaffold tree + provenance/seed/gpu discipline **done**; `environment.yml` written + extraction harness built and smoke-tested **[~]** (env not created; batching/GQA/sink-tracking + `apply_dictionary` pending); annotated the remaining boxes with their landing zones (`configs/data.yaml`, `configs/dictionaries.yaml`). Status → Phase 0 in progress.
 - **2026-08-07c** — N9 exploratory addendum: confabulation rate measured (Python prior), planning refuted against a null.
 - **2026-08-07b** — Confirmatory family closed: HT13 not adjudicated (instrument null), HT14 refuted; BH-FDR recorded as vacuous. Verdict summary added.

@@ -79,6 +79,7 @@
 - [20. Where it stands, and what to do next](#20-where-it-stands-and-what-to-do-next)
 - [21. Caveats every headline number inherits](#21-caveats-every-headline-number-inherits)
 - [22. Map — where everything lives](#22-map--where-everything-lives)
+- [23. The model constraint, and the Gemma port](#23-the-model-constraint-and-the-gemma-port)
 
 ---
 
@@ -1483,6 +1484,89 @@ reports, and because several of them bound results quoted above.
 | **Phase 9 — read side** | `nla/src/{p1b_read_probe,p1b_position_depth,p1b_graded_labels,p1b_consensus_labels,p1b_readout_controls,p1b_answer_deviation,b6_length_vs_faithfulness,n10b_split_half}.py` |
 | **Phase 9 — the ladder** | `nla/src/{p1b_ladder,p1b_ladder_score,p1b_ladder_null,p1b_ladder_replication,p1b_l2_mechanism,p1b_span_probe,p1b_span_positions,p1b_behavioural}.py` · `data/nla/p0/p1b/` |
 | Cluster environment (juno) | `nla/scripts/juno_env.sh` · `nla/scripts/juno_build_envs.sh` |
+
+---
+
+## 23. The model constraint, and the Gemma port (added 2026-08-31)
+
+**A policy constraint arrived after this report's conclusions were reached: no Chinese-origin models
+going forward.** That excludes the subject model of everything above — `Qwen2.5-7B-Instruct` — and
+five of the seven panel models. It does not invalidate a single number in this report; it bounds
+what can be *extended*.
+
+### 23.1 What the constraint costs
+
+| | |
+|---|---|
+| **Excluded** | Qwen2.5-7B-Instruct (the subject), Qwen2.5-Coder-7B, Qwen3-0.6B, DS-R1-Distill-Qwen-7B/1.5B, DeepSeek-Coder-6.7B |
+| **Survive from the panel** | Llama-3.1-8B (Meta), Phi-3.5-mini (Microsoft), SmolLM3-3B (HuggingFace) |
+| **Judgment call** | DeepSeek-R1-Distill-Llama-8B — Llama base, DeepSeek distillation |
+
+The reasoning-vs-coder comparison from Papers 2–3 (ρ = 0.30–0.47 vs ≈ 0) cannot be extended: the
+reasoning arm drops to SmolLM3-3B alone and the coder arm to CodeLlama-7B. Note the coder arm never
+had public dictionaries for *any* model, so Instrument 3 loses nothing there it had.
+
+### 23.2 Instrument 2 is a port, not a rebuild
+
+**The NLA line survives.** Three of the four released NLA checkpoint pairs are non-Chinese:
+
+| host model | layer | d_model | AV / AR |
+|---|---|---|---|
+| **Gemma-3-12B-IT** (Google) | 32 / 48 | 3840 | `kitft/nla-gemma3-12b-L32-{av,ar}` |
+| **Gemma-3-27B-IT** (Google) | 41 / 62 | 5376 | `kitft/nla-gemma3-27b-L41-{av,ar}` |
+| **Llama-3.3-70B-Instruct** (Meta) | 53 / 80 | 8192 | `kitft/Llama-3.3-70B-NLA-L53-{av,ar}` |
+| ~~Qwen2.5-7B-Instruct~~ | 20 / 28 | 3584 | excluded |
+
+**Gemma-3-12B is the recommended successor**, for a reason that is better than availability: it is
+the only model with **both** a released NLA pair **and** a strong dictionary suite (Gemma Scope
+SAEs and transcoders, with native `circuit-tracer` support). Instruments 2 and 3 would share a host
+for the first time, which makes E7 triangulation *stronger* than it was here, where the two
+instruments sat on different models. Llama-3.3-70B is a different compute class — 8192-dim at 70B
+does not fit 4×A6000 in bf16 and is an 8×H100 job.
+
+**Two integration facts, identified before any GPU time.**
+
+1. **The layer-path probe will fail.** Gemma-3 loads as `Gemma3ForConditionalGeneration` (the
+   multimodal wrapper), so decoder layers live at `model.language_model.layers`. Both
+   `extract.py:_layers()` and `steer.py:_layers()` probe only
+   `("model.layers", "model.model.layers", "transformer.h")`. Two lines in two files — and the
+   **P0.4 layer-indexing gate** (§15.2) exists precisely to verify the two stay in sync afterwards.
+2. **Gemma normalises embeddings by √d** (`arch_adapters.py`: `gemma3 → sqrt_d_model`). The write
+   hook is scale-free — it unit-normalises the direction and scales by the local ‖h‖ — so injection
+   should be unaffected, but the AV/AR interface may assume the adapter's convention. **G0 is the
+   gate that would catch it.**
+
+### 23.3 The port plan, and what it costs
+
+Throughput measured on H200 this week: 7B at a 2,048-token budget runs ~7.5 generations/min;
+12B scales to ≈4/min.
+
+| phase | work | wall-clock |
+|---|---|---|
+| **A — instrument validation** | download host + AV + AR; fix `_layers()`; **G0 replication gate**; α = 0 identity test; layer-index gate at L32 | ~1 day |
+| **B — behavioural baseline** | 5 tiers × 60 items × 10 draws = 3,000 generations, five jobs in parallel | ~½ day |
+| **C — read-side battery** | extraction over 48 layers; dense probes, per-tier baselines, the ladder, span probe, position × depth — every script already exists | ~1 day |
+| **D — causal arm** | V1–V5 sweep (~1,800 generations) plus the P0.1–P0.4 equivalents (~2,700) | 2–3 days |
+
+**≈ one week**, mostly unattended, **conditional on G0 passing first time.**
+
+**The risk is concentrated in G0, and it is lower than B1 makes it look.** B1's transfer failure
+(§ledger) used a *Qwen* NLA pointed at a different model. The port uses the **native Gemma NLA on
+Gemma**, which is the supported configuration. A G0 failure would be a finding about the released
+Gemma pair, not a repeat of B1.
+
+**Nothing about the method is re-done.** The stimuli, every script, the frozen decision rules, the
+nineteen-item failure list (§18), and the whole measurement stack — graded k/N labels, per-tier
+baselines, selection-free statistics, the reproducibility-floor protocol — are model-agnostic. What
+changes is the host, the layer (20 → 32), and d_model (3584 → 3840). **No number in this report
+survives a host change**, and G0 must pass before any of them is re-asked.
+
+### 23.4 The honest framing
+
+The Qwen programme becomes **the pilot that designed the study**. Its contribution is the method and
+the negative: a pre-registered programme in which every internal measure that looked useful reduced
+to a surface statistic, with a 48-layer host now available to re-ask the same questions at finer
+depth resolution. That is a legitimate and unusually well-evidenced position to port from.
 
 ---
 
