@@ -46,6 +46,19 @@ sys.path.insert(0, str(_HERE))
 SEED = 20260724
 MAX_NEW_GEN = 2048
 
+# Host registry for the model-constraint port. The ladder is host-agnostic — it generates and
+# extracts, and neither depends on the NLA — so pointing it at Gemma needs only the model id and
+# the layer its released pair was trained at. Default preserves the banked Qwen behaviour.
+HOSTS = {
+    "qwen7b":   ("Qwen/Qwen2.5-7B-Instruct", 20),
+    "gemma12b": ("google/gemma-3-12b-it", 32),
+    # Instrument 3's host under the model constraint. It has no NLA pair, but the ladder needs
+    # none — it generates and extracts — so this yields the dense-probe baseline that E1/E2 must
+    # beat, on the only panel model with both pretrained SAEs and transcoders. Layer 16 of 32 is
+    # the mid-depth analogue of Qwen's 20/28; nothing here depends on it being NLA-instrumented.
+    "llama8b":  ("meta-llama/Llama-3.1-8B-Instruct", 16),
+}
+
 
 def load_tier(tier: str, rng: random.Random) -> list[dict]:
     """Snippets having both L0 and `tier`, with ground truth and a usable call on the tier side."""
@@ -76,14 +89,28 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tier", required=True, choices=["L0", "L1", "L1b", "L2", "L3"])
     ap.add_argument("--draws", type=int, default=5)
+    # Draw-sharding: a tier's draws split across jobs so more GPUs run at once. Shards are
+    # DISJOINT draw ranges writing to their own draws_dN.jsonl, so there is no append race and
+    # no resume ambiguity; `nla/scripts/merge_ladder_shards.sh` concatenates them into the
+    # draws.jsonl every scorer already reads, leaving every loader untouched.
+    ap.add_argument("--draw-start", type=int, default=0,
+                    help="first draw index for this shard (default 0)")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--out-dir", default=str(_PROJ / "data/nla/p0/p1b/ladder"))
+    ap.add_argument("--host", choices=sorted(HOSTS), default="qwen7b")
+    ap.add_argument("--out-dir", default=None,
+                    help="defaults to data/nla/p0/p1b/ladder for qwen7b, "
+                         "…/ladder_<host> otherwise, so a port cannot overwrite the bank")
     args = ap.parse_args()
 
     import torch
     from layer_rotation import all_layer_acts
-    from steer_run import TARGET_MODEL, build_user, graded
+    from steer_run import build_user, graded
+
+    model_id, layer = HOSTS[args.host]
+    if args.out_dir is None:
+        args.out_dir = str(_PROJ / "data/nla/p0/p1b"
+                           / ("ladder" if args.host == "qwen7b" else f"ladder_{args.host}"))
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     torch.manual_seed(SEED)
@@ -92,12 +119,20 @@ def main() -> int:
     items = load_tier(args.tier, random.Random(SEED))
     if args.limit:
         items = items[:args.limit]
-    tokz = AutoTokenizer.from_pretrained(TARGET_MODEL)
+    tokz = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForCausalLM.from_pretrained(
-        TARGET_MODEL, torch_dtype=torch.bfloat16, device_map=args.device).eval()
-    print(f"[ladder:{args.tier}] {len(items)} items · {args.draws} draws", flush=True)
+        model_id, torch_dtype=torch.bfloat16, device_map=args.device).eval()
+    # build_call was validated on Qwen's tokenizer. A tier whose calls do not survive a new
+    # tokenizer would generate 600 answers to malformed questions — the failure mode that once
+    # gave clean-code accuracy 1/16 — so the first item is echoed for eyeballing before the run.
+    print(f"[ladder:{args.tier}] host {args.host} ({model_id}, L{layer}) · "
+          f"{len(items)} items · {args.draws} draws", flush=True)
+    if items:
+        print(f"[ladder:{args.tier}] sample call: {items[0]['call']!r} "
+              f"truth={items[0]['truth']!r}", flush=True)
 
-    draws_p = out / "draws.jsonl"
+    draws_p = out / ("draws.jsonl" if args.draw_start == 0
+                     else f"draws_d{args.draw_start}.jsonl")
     done = set()
     if draws_p.exists():
         for l in open(draws_p):
@@ -106,7 +141,7 @@ def main() -> int:
                 done.add((r["draw"], r["snippet_id"]))
     sink = open(draws_p, "a")
 
-    for d in range(args.draws):
+    for d in range(args.draw_start, args.draw_start + args.draws):
         for i, it in enumerate(items):
             if (d, it["snippet_id"]) in done:
                 continue
@@ -124,12 +159,13 @@ def main() -> int:
                                    "answer": got, "reply_chars": len(text),
                                    "n_gen": int(o.shape[1]) - len(ids)}) + "\n")
             sink.flush()
-        print(f"[ladder:{args.tier}] draw {d+1}/{args.draws} done", flush=True)
+        print(f"[ladder:{args.tier}] draw {d} done "
+              f"({d - args.draw_start + 1}/{args.draws} in this shard)", flush=True)
     sink.close()
 
     # Activations once: reads are bit-exact, so repeats buy nothing.
     acts_p = out / "acts.npy"
-    if not acts_p.exists():
+    if args.draw_start == 0 and not acts_p.exists():
         A = np.stack([all_layer_acts(model, tokz, build_user(it["code"], it["call"]))
                       for it in items])
         np.save(acts_p, A)
@@ -140,8 +176,12 @@ def main() -> int:
     by_item: dict[str, list[int]] = {}
     for r in rows:
         by_item.setdefault(r["snippet_id"], []).append(int(r["correct"]))
-    (out / "manifest.json").write_text(json.dumps({
-        "tier": args.tier, "seed": SEED, "max_new_gen": MAX_NEW_GEN, "draws": args.draws,
+    man = out / ("manifest.json" if args.draw_start == 0
+                 else f"manifest_d{args.draw_start}.json")
+    man.write_text(json.dumps({
+        "tier": args.tier, "host": args.host, "model": model_id, "layer": layer,
+        "seed": SEED, "max_new_gen": MAX_NEW_GEN, "draws": args.draws,
+        "draw_start": args.draw_start,
         "n_items": len(items), "n_rows": len(rows),
         "mean_correct": round(st.mean(r["correct"] for r in rows), 4),
         "mean_reply_chars": round(st.mean(r["reply_chars"] for r in rows), 1),
