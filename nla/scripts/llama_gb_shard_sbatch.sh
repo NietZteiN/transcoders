@@ -14,11 +14,13 @@
 #
 # Shards write draws_dN.jsonl; nla/scripts/merge_ladder_shards.sh folds them into draws.jsonl.
 #SBATCH --job-name=llama_gb_s
-#SBATCH --partition=h200,h100
+# Llama-3.1-8B is ~16 GB in bf16, so unlike Gemma-12B (~24 GB) it also fits an A30 24 GB card.
+# Listing a30 as well adds three more GPUs this work can land on.
+#SBATCH --partition=h200,h100,a30
 #SBATCH --array=0-9
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=96G
+#SBATCH --mem=48G
 #SBATCH --time=06:00:00
 #SBATCH --output=/work/jvl210002/migration/transcoders/log/slurm/%A_%a_llama_gb_s.out
 #SBATCH --error=/work/jvl210002/migration/transcoders/log/slurm/%A_%a_llama_gb_s.out

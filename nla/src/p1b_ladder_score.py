@@ -28,6 +28,7 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 PROJ = _HERE.parent.parent
+from p1b_ladder import read_draws  # noqa: E402
 from p1b_graded_labels import oof_ridge, spearman  # noqa: E402
 
 SEED = 20260724
@@ -37,11 +38,13 @@ ROUTES = {"clean": ["L0"], "atom": ["L1", "L1b"], "relational": ["L2", "L3"]}
 BEATS = 0.10          # what would count as the residual stream carrying something length does not
 
 
-def load_tier(root: Path, tier: str):
+def load_tier(root: Path, tier: str, draws: set[int] | None = None):
     d = root / tier
     acts = np.load(d / "acts.npy")
     sids = json.loads((d / "items.json").read_text())
-    rows = [json.loads(l) for l in open(d / "draws.jsonl") if l.strip()]
+    rows = read_draws(d)          # every shard, not just draws.jsonl
+    if draws is not None:
+        rows = [r for r in rows if r["draw"] in draws]
     corr: dict[str, list[int]] = {}
     chars: dict[str, list[int]] = {}
     for r in rows:
@@ -57,11 +60,26 @@ def load_tier(root: Path, tier: str):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=str(PROJ / "data/nla/p0/p1b/ladder"))
+    # WITHOUT this the script silently changes meaning when draws are added later. The Qwen
+    # ladder was scored as a 5-draw discovery run, then the replication appended draws 5-9 to the
+    # same files — so a re-run now pools ten draws and produces different numbers under the same
+    # filename, with no log entry describing them. The discovery artifact is `--draws 0-4`.
+    ap.add_argument("--draws", default=None,
+                    help="draw indices to score, e.g. '0-4' or '0,1,2'. Default: all present.")
     ap.add_argument("--out", default=str(PROJ / "data/nla/p0/p1b/ladder_score.json"))
     args = ap.parse_args()
     root = Path(args.root)
+    sel = None
+    if args.draws:
+        sel = set()
+        for part in args.draws.split(","):
+            if "-" in part:
+                a, b = part.split("-"); sel.update(range(int(a), int(b) + 1))
+            else:
+                sel.add(int(part))
 
     rep = {"experiment": "p1b_ladder_read_probe", "seed": SEED, "beats_threshold": BEATS,
+           "draws_scored": sorted(sel) if sel else "all present",
            "note": "each tier against its own length baseline; see the 2026-08-30 tier retraction",
            "tiers": {}}
     store = {}
@@ -70,7 +88,7 @@ def main() -> int:
         if not (root / tier / "acts.npy").exists():
             rep["tiers"][tier] = {"note": "missing"}
             continue
-        X, y, ln, g = load_tier(root, tier)
+        X, y, ln, g = load_tier(root, tier, sel)
         base = round(spearman(y, oof_ridge(ln.reshape(-1, 1), y, g)), 4)
         curve = [round(spearman(y, oof_ridge(X[:, L], y, g)), 4) for L in range(X.shape[1])]
         best = int(np.argmax(curve))

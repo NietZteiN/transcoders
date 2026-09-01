@@ -60,6 +60,24 @@ HOSTS = {
 }
 
 
+def read_draws(tier_dir) -> list[dict]:
+    """Every draw for one tier, across shards.
+
+    Draw-sharding writes draws.jsonl (shard 0) plus draws_dN.jsonl per later shard. A reader that
+    opens only draws.jsonl silently scores HALF the draws and returns a plausible number — the
+    exact shape of failure this project has twice mistaken for a result. Globbing removes the
+    dependency on remembering to merge; the merge script remains for anyone who wants a single
+    file, but nothing requires it.
+    """
+    import glob
+    rows = []
+    for f in sorted(glob.glob(str(Path(tier_dir) / "draws*.jsonl"))):
+        for line in open(f):
+            if line.strip():
+                rows.append(json.loads(line))
+    return rows
+
+
 def load_tier(tier: str, rng: random.Random) -> list[dict]:
     """Snippets having both L0 and `tier`, with ground truth and a usable call on the tier side."""
     from task_bank import build_call

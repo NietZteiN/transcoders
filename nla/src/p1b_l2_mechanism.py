@@ -25,6 +25,7 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 PROJ = _HERE.parent.parent
+from p1b_ladder import read_draws  # noqa: E402
 from p1b_graded_labels import oof_ridge, spearman  # noqa: E402
 
 SEED, N_PERM, BAR = 20260724, 200, 0.10
@@ -71,11 +72,9 @@ def main() -> int:
         stim = stimuli(tier)
         corr: dict[str, list[int]] = {}
         chars: dict[str, list[int]] = {}
-        for l in open(d / "draws.jsonl"):
-            if l.strip():
-                r = json.loads(l)
-                corr.setdefault(r["snippet_id"], []).append(int(r["correct"]))
-                chars.setdefault(r["snippet_id"], []).append(int(r["reply_chars"]))
+        for r in read_draws(d):   # every shard, not just draws.jsonl
+            corr.setdefault(r["snippet_id"], []).append(int(r["correct"]))
+            chars.setdefault(r["snippet_id"], []).append(int(r["reply_chars"]))
         keep = [i for i, s in enumerate(sids) if s in corr and s in stim]
         y = np.array([st.mean(corr[sids[i]]) for i in keep])
         g = np.array([sids[i] for i in keep])
