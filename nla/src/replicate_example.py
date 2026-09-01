@@ -171,13 +171,17 @@ def stage_a(device: str, tol_rel: float, ref: dict) -> int:
         f"\nmedian rel err = {np.median(rel):.5f}   max = {rel.max():.5f}   "
         f"tokens over tol({tol_rel}) = {n_bad}/{n_got}"
     )
-    out = _NLA_ROOT / "results" / "g0a_stage_a.json"
+    out = _NLA_ROOT / "results" / f"g0a_stage_a_{ref['key']}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(
             {
-                "model": TARGET_MODEL,
-                "layer_index": LAYER_INDEX,
+                "host": ref["key"],
+                "model": ref["model"],
+                "layer_index": ref["layer"],
+                "d_model": ref["d_model"],
+                "var_v_nrm": ref["var_v_nrm"],
+                "reference_file": ref["path"].name,
                 "n_tokens": n_got,
                 "median_rel_err": float(np.median(rel)),
                 "max_rel_err": float(rel.max()),
@@ -202,14 +206,15 @@ def stage_a(device: str, tol_rel: float, ref: dict) -> int:
     return 1
 
 
-def stage_b(device: str, sglang_url: str, tol_cos: float) -> int:
+def stage_b(device: str, sglang_url: str, tol_cos: float, ref: dict) -> int:
     """Full round trip: AV decode + AR reconstruction vs the reference's cos."""
     from extract import ActivationExtractor  # noqa: E402
     from nla_inference import NLAClient, NLACritic  # noqa: E402
 
-    expected = parse_expected()
-    ex = ActivationExtractor(TARGET_MODEL, LAYER_INDEX, device=device)
-    res = ex.extract_chat(USER_MESSAGE, ASSISTANT_REPLY + END_OF_TURN, text_id="worked_example")
+    expected = ref["rows"]
+    ex = ActivationExtractor(ref["model"], ref["layer"], device=device)
+    res = ex.extract_chat(ref["user_message"], ref["assistant_reply"] + ref["end_of_turn"],
+                          text_id="worked_example")
     ex.close()
 
     av = NLAClient(_NLA_ROOT / "data" / "checkpoints" / "av", sglang_url=sglang_url)

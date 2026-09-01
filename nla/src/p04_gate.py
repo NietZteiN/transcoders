@@ -41,6 +41,15 @@ _PROJ = _NLA_ROOT.parent
 sys.path.insert(0, str(_NLA_ROOT / "vendor" / "nla-repo"))
 sys.path.insert(0, str(_HERE))
 
+# The gate is host-agnostic — it checks that the extractor and the steerer resolve to the SAME
+# decoder block, which is a structural question, not a Qwen one. Made a flag for the Gemma port,
+# where `_layers()` had to learn `model.language_model.layers` and the two files could silently
+# drift apart. Default preserves the original behaviour.
+HOSTS = {
+    "qwen7b":   ("Qwen/Qwen2.5-7B-Instruct", "6,13,20"),
+    "gemma12b": ("google/gemma-3-12b-it", "8,20,32"),
+    "gemma27b": ("google/gemma-3-27b-it", "10,25,41"),
+}
 TARGET_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 SEED = 20260724
 TOL = 1e-3
@@ -112,7 +121,9 @@ def check(ex, steerer_cls, spec_cls, layer: int, ids, torch) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--layers", default="6,13,20")
+    ap.add_argument("--host", choices=sorted(HOSTS), default="qwen7b")
+    ap.add_argument("--layers", default=None,
+                    help="comma-separated layer indices; defaults to the host's spread")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", default=str(_PROJ / "data/nla/p0/p04/p04_gate.json"))
     args = ap.parse_args()
@@ -121,15 +132,17 @@ def main() -> int:
     from extract import ActivationExtractor
     from steer import ActivationSteerer, SteerSpec
 
-    want_layers = [int(x) for x in args.layers.split(",")]
+    model_id, default_layers = HOSTS[args.host]
+    want_layers = [int(x) for x in (args.layers or default_layers).split(",")]
     report = {"experiment": "p0.4_layer_indexing_gate",
               "prereg": "log/nla-harness/2026-08-28_p04-depth-prereg.md",
-              "model": TARGET_MODEL, "seed": SEED, "alpha": ALPHA, "tolerance_rel": TOL,
+              "host": args.host,
+              "model": model_id, "seed": SEED, "alpha": ALPHA, "tolerance_rel": TOL,
               "probe_chars": len(PROBE), "passes": {}}
 
     for dtype, label, is_gate in ((torch.float32, "fp32", True),
                                   (torch.bfloat16, "bf16", False)):
-        ex = ActivationExtractor(TARGET_MODEL, want_layers[0], device=args.device, dtype=dtype)
+        ex = ActivationExtractor(model_id, want_layers[0], device=args.device, dtype=dtype)
         # `return_tensors="pt"` hands back a BatchEncoding on transformers 5.x, not a tensor.
         # Mirror steer_run.gen exactly instead: ask for the id list and wrap it ourselves, so
         # the gate tokenizes the way the production path does.
