@@ -35,6 +35,27 @@ from p1b_l2_mechanism import stimuli  # noqa: E402
 SEED, N_PERM, BAR = 20260724, 200, 0.10
 
 
+def repetition_features(code: str) -> list[float]:
+    """How repetitive is this text, independent of how many dispatcher sites it has?
+
+    A dispatcher object repeats a lexical pattern N times, so a probe that "decodes span count"
+    may only be counting repeats. On Qwen these five counts alone reached rho = +0.8346 against
+    the residual stream's +0.8842 — which is what turned that result from a structural claim into
+    a surface-statistical one. Carried here so the same control runs on every host.
+    """
+    from collections import Counter
+    toks = code.split()
+    lines = [l.strip() for l in code.splitlines() if l.strip()]
+    tc, lc = Counter(toks), Counter(lines)
+    return [
+        float(tc.most_common(1)[0][1]) if tc else 0.0,   # max token frequency
+        float(len(tc)),                                   # distinct tokens
+        float(len(toks)),                                 # total tokens
+        float(sum(v for v in lc.values() if v > 1)),      # duplicated lines
+        float(lc.most_common(1)[0][1]) if lc else 0.0,    # max line frequency
+    ]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tiers", default="L2,L3,L1b")
@@ -70,7 +91,11 @@ def main() -> int:
                   flush=True)
             continue
 
+        reps = np.array([repetition_features(stim[sids[i]]["code"]) for i in keep])
+        comb = np.hstack([size, reps])
         rho_size = spearman(y, oof_ridge(size, y, g))
+        rho_rep = spearman(y, oof_ridge(reps, y, g))
+        rho_comb = spearman(y, oof_ridge(comb, y, g))
         curve = [spearman(y, oof_ridge(X[:, L], y, g)) for L in range(X.shape[1])]
         mean_rho = st.mean(curve)
         rng = np.random.default_rng(SEED)
@@ -82,18 +107,22 @@ def main() -> int:
         p = (sum(1 for v in null if v >= mean_rho) + 1) / (N_PERM + 1)
         block.update({
             "rho_code_size_baseline": round(rho_size, 4),
+            "rho_repetition_only": round(rho_rep, 4),
+            "rho_size_plus_repetition": round(rho_comb, 4),
+            "beats_size_and_repetition_by": round(mean_rho - rho_comb, 4),
             "rho_residual_mean": round(mean_rho, 4),
             "rho_residual_max": round(max(curve), 4),
             "beats_size_by": round(mean_rho - rho_size, 4),
             "perm_p": round(p, 5), "perm_null_mean": round(st.mean(null), 4),
-            "verdict": ("SPANS ARE ENCODED BEYOND CODE SIZE"
-                        if mean_rho - rho_size >= BAR and p < 0.05
-                        else "NOT BEYOND CODE SIZE"),
+            "verdict": ("SPANS ENCODED BEYOND SIZE AND REPETITION"
+                        if mean_rho - rho_comb >= BAR and p < 0.05
+                        else "NOT BEYOND SIZE AND REPETITION"),
         })
         rep["tiers"][tier] = block
         print(f"[span] {tier:<4} n={len(keep):>3} spans {y.mean():.1f}±{y.std():.1f} · "
-              f"size-base {rho_size:+.4f} · residual {mean_rho:+.4f} · "
-              f"beats {mean_rho - rho_size:+.4f} (p={p:.4f}) -> {block['verdict']}", flush=True)
+              f"size {rho_size:+.4f} · rep {rho_rep:+.4f} · size+rep {rho_comb:+.4f} · "
+              f"residual {mean_rho:+.4f} · beats {mean_rho - rho_comb:+.4f} "
+              f"(p={p:.4f}) -> {block['verdict']}", flush=True)
 
     rep["finished_utc"] = datetime.now(timezone.utc).isoformat()
     Path(args.out).write_text(json.dumps(rep, indent=2))
