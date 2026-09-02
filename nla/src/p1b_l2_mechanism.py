@@ -55,12 +55,24 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tiers", default="L2,L1b")
     ap.add_argument("--root", default=str(PROJ / "data/nla/p0/p1b/ladder"))
+    # Replication scoring must exclude the discovery draws: a replication that includes its own
+    # discovery data is not a replication.
+    ap.add_argument("--draws", default=None, help="draw indices to score, e.g. '10-14'")
     ap.add_argument("--out", default=str(PROJ / "data/nla/p0/p1b/l2_mechanism.json"))
     args = ap.parse_args()
     root = Path(args.root)
+    sel = None
+    if args.draws:
+        sel = set()
+        for part in args.draws.split(","):
+            if "-" in part:
+                a, b_ = part.split("-"); sel.update(range(int(a), int(b_) + 1))
+            else:
+                sel.add(int(part))
 
     rep = {"experiment": "p1b_l2_mechanism", "seed": SEED, "bar": BAR,
            "prereg": "log/nla-harness/2026-08-31_l2-mechanism-prereg.md",
+           "draws_scored": sorted(sel) if sel else "all",
            "static_features": ["n_dispatcher_spans", "code_chars", "n_lines",
                                "has_while", "is_javascript"],
            "tiers": {}}
@@ -72,7 +84,10 @@ def main() -> int:
         stim = stimuli(tier)
         corr: dict[str, list[int]] = {}
         chars: dict[str, list[int]] = {}
-        for r in split_terminated(read_draws(d))[0]:   # terminated rows only
+        rows_t = split_terminated(read_draws(d))[0]   # terminated rows only
+        if sel is not None:
+            rows_t = [r for r in rows_t if r["draw"] in sel]
+        for r in rows_t:
             corr.setdefault(r["snippet_id"], []).append(int(r["correct"]))
             chars.setdefault(r["snippet_id"], []).append(int(r["reply_chars"]))
         keep = [i for i, s in enumerate(sids) if s in corr and s in stim]
