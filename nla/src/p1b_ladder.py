@@ -89,6 +89,29 @@ def split_terminated(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     return t, [r for r in rows if not terminated(r)]
 
 
+def repetition_features(code: str) -> list[float]:
+    """How repetitive is this text, independent of any structure it encodes?
+
+    A dispatcher object repeats a lexical pattern N times, so a probe that appears to decode
+    structure may only be counting repeats. On Qwen these five counts alone reached rho = +0.8346
+    against the residual stream's +0.8842 — the step that turned a structural claim into a
+    surface-statistical one. Lives here rather than in either scorer because both need it and
+    importing across them is circular: p1b_span_probe already takes `stimuli` from
+    p1b_l2_mechanism.
+    """
+    from collections import Counter
+    toks = code.split()
+    lines = [l.strip() for l in code.splitlines() if l.strip()]
+    tc, lc = Counter(toks), Counter(lines)
+    return [
+        float(tc.most_common(1)[0][1]) if tc else 0.0,   # max token frequency
+        float(len(tc)),                                   # distinct tokens
+        float(len(toks)),                                 # total tokens
+        float(sum(v for v in lc.values() if v > 1)),      # duplicated lines
+        float(lc.most_common(1)[0][1]) if lc else 0.0,    # max line frequency
+    ]
+
+
 def read_draws(tier_dir) -> list[dict]:
     """Every draw for one tier, across shards.
 

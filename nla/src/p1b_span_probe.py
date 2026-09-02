@@ -31,29 +31,11 @@ sys.path.insert(0, str(_HERE))
 PROJ = _HERE.parent.parent
 from p1b_graded_labels import oof_ridge, spearman  # noqa: E402
 from p1b_l2_mechanism import stimuli  # noqa: E402
+from p1b_ladder import repetition_features  # noqa: E402
 
 SEED, N_PERM, BAR = 20260724, 200, 0.10
 
 
-def repetition_features(code: str) -> list[float]:
-    """How repetitive is this text, independent of how many dispatcher sites it has?
-
-    A dispatcher object repeats a lexical pattern N times, so a probe that "decodes span count"
-    may only be counting repeats. On Qwen these five counts alone reached rho = +0.8346 against
-    the residual stream's +0.8842 — which is what turned that result from a structural claim into
-    a surface-statistical one. Carried here so the same control runs on every host.
-    """
-    from collections import Counter
-    toks = code.split()
-    lines = [l.strip() for l in code.splitlines() if l.strip()]
-    tc, lc = Counter(toks), Counter(lines)
-    return [
-        float(tc.most_common(1)[0][1]) if tc else 0.0,   # max token frequency
-        float(len(tc)),                                   # distinct tokens
-        float(len(toks)),                                 # total tokens
-        float(sum(v for v in lc.values() if v > 1)),      # duplicated lines
-        float(lc.most_common(1)[0][1]) if lc else 0.0,    # max line frequency
-    ]
 
 
 def main() -> int:
