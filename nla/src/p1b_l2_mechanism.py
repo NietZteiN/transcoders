@@ -25,7 +25,7 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 PROJ = _HERE.parent.parent
-from p1b_ladder import read_draws  # noqa: E402
+from p1b_ladder import read_draws, split_terminated  # noqa: E402
 from p1b_graded_labels import oof_ridge, spearman  # noqa: E402
 
 SEED, N_PERM, BAR = 20260724, 200, 0.10
@@ -72,7 +72,7 @@ def main() -> int:
         stim = stimuli(tier)
         corr: dict[str, list[int]] = {}
         chars: dict[str, list[int]] = {}
-        for r in read_draws(d):   # every shard, not just draws.jsonl
+        for r in split_terminated(read_draws(d))[0]:   # terminated rows only
             corr.setdefault(r["snippet_id"], []).append(int(r["correct"]))
             chars.setdefault(r["snippet_id"], []).append(int(r["reply_chars"]))
         keep = [i for i, s in enumerate(sids) if s in corr and s in stim]

@@ -28,7 +28,7 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 PROJ = _HERE.parent.parent
-from p1b_ladder import read_draws  # noqa: E402
+from p1b_ladder import read_draws, split_terminated  # noqa: E402
 from p1b_graded_labels import oof_ridge, spearman  # noqa: E402
 
 SEED = 20260724
@@ -43,6 +43,7 @@ def load_tier(root: Path, tier: str, draws: set[int] | None = None):
     acts = np.load(d / "acts.npy")
     sids = json.loads((d / "items.json").read_text())
     rows = read_draws(d)          # every shard, not just draws.jsonl
+    rows, dnt = split_terminated(rows)   # non-terminating rows have no usable answer OR length
     if draws is not None:
         rows = [r for r in rows if r["draw"] in draws]
     corr: dict[str, list[int]] = {}

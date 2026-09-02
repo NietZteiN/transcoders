@@ -60,6 +60,35 @@ HOSTS = {
 }
 
 
+# Budgets used across the ladder runs. Rows written before 2026-09-02 do not carry
+# `max_new_gen`, so the cap is inferred from these; newer rows record it directly.
+KNOWN_CAPS = frozenset({1100, 2048, 4096, 8192})
+
+
+def terminated(row: dict) -> bool:
+    """Did this generation finish, or did it run into the wall?
+
+    A row whose n_gen equals its generation cap never terminated — the model was still going.
+    That matters for two separate reasons, and conflating them is what inflated the reply-length
+    baseline: its ANSWER is missing or truncated (so scoring it wrong is a guess, not a
+    measurement), and its LENGTH is censored (the true length is unknown, only bounded below).
+    Both make it unusable as a correctness label and as a length datum.
+
+    Note this is not the same as `parsed`. A handful of rows emit an `Output:` line and then keep
+    generating to the cap — answered, but still non-terminating — and two Llama rows terminated
+    normally while emitting no parsable answer, which is a genuine wrong answer rather than a
+    truncation.
+    """
+    cap = row.get("max_new_gen")
+    return row["n_gen"] < cap if cap else row["n_gen"] not in KNOWN_CAPS
+
+
+def split_terminated(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(terminated, did_not_terminate) — callers report the second count rather than hiding it."""
+    t = [r for r in rows if terminated(r)]
+    return t, [r for r in rows if not terminated(r)]
+
+
 def read_draws(tier_dir) -> list[dict]:
     """Every draw for one tier, across shards.
 
@@ -114,6 +143,11 @@ def main() -> int:
     ap.add_argument("--draw-start", type=int, default=0,
                     help="first draw index for this shard (default 0)")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--max-new-gen", type=int, default=MAX_NEW_GEN,
+                    help="generation budget. 100%% of unparsed replies sit exactly at the cap, "
+                         "so this is the knob that controls censoring.")
+    ap.add_argument("--snippets", default=None,
+                    help="comma-separated snippet_ids to restrict to (for targeted re-runs)")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--host", choices=sorted(HOSTS), default="qwen7b")
     ap.add_argument("--out-dir", default=None,
@@ -135,6 +169,9 @@ def main() -> int:
     out = Path(args.out_dir) / args.tier
     out.mkdir(parents=True, exist_ok=True)
     items = load_tier(args.tier, random.Random(SEED))
+    if args.snippets:
+        want = {x.strip() for x in args.snippets.split(",") if x.strip()}
+        items = [i for i in items if i["snippet_id"] in want]
     if args.limit:
         items = items[:args.limit]
     tokz = AutoTokenizer.from_pretrained(model_id)
@@ -168,14 +205,15 @@ def main() -> int:
                                            add_generation_prompt=True, return_dict=False)
             with torch.no_grad():
                 o = model.generate(torch.tensor([ids], device=model.device),
-                                   max_new_tokens=MAX_NEW_GEN, do_sample=False,
+                                   max_new_tokens=args.max_new_gen, do_sample=False,
                                    pad_token_id=tokz.eos_token_id)
             text = tokz.decode(o[0][len(ids):], skip_special_tokens=True)
             got, ok = graded(text, it["truth"])
             sink.write(json.dumps({"draw": d, "snippet_id": it["snippet_id"], "tier": args.tier,
                                    "correct": bool(ok), "parsed": got is not None,
                                    "answer": got, "reply_chars": len(text),
-                                   "n_gen": int(o.shape[1]) - len(ids)}) + "\n")
+                                   "n_gen": int(o.shape[1]) - len(ids),
+                                   "max_new_gen": args.max_new_gen}) + "\n")
             sink.flush()
         print(f"[ladder:{args.tier}] draw {d} done "
               f"({d - args.draw_start + 1}/{args.draws} in this shard)", flush=True)
@@ -198,7 +236,7 @@ def main() -> int:
                  else f"manifest_d{args.draw_start}.json")
     man.write_text(json.dumps({
         "tier": args.tier, "host": args.host, "model": model_id, "layer": layer,
-        "seed": SEED, "max_new_gen": MAX_NEW_GEN, "draws": args.draws,
+        "seed": SEED, "max_new_gen": args.max_new_gen, "draws": args.draws,
         "draw_start": args.draw_start,
         "n_items": len(items), "n_rows": len(rows),
         "mean_correct": round(st.mean(r["correct"] for r in rows), 4),

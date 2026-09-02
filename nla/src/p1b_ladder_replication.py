@@ -26,7 +26,7 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 PROJ = _HERE.parent.parent
-from p1b_ladder import read_draws  # noqa: E402
+from p1b_ladder import read_draws, split_terminated  # noqa: E402
 from p1b_graded_labels import oof_ridge, spearman  # noqa: E402
 from p1b_ladder_score import ROUTES, TIERS  # noqa: E402
 
@@ -42,7 +42,7 @@ def load(root: Path, tier: str, draws: set[int] | None):
     sids = json.loads((d / "items.json").read_text())
     corr: dict[str, list[int]] = {}
     chars: dict[str, list[int]] = {}
-    for r in read_draws(d):       # every shard, not just draws.jsonl
+    for r in split_terminated(read_draws(d))[0]:   # terminated rows only
         if draws is not None and r["draw"] not in draws:
             continue
         corr.setdefault(r["snippet_id"], []).append(int(r["correct"]))
