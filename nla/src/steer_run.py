@@ -522,6 +522,10 @@ def main() -> int:
         # rows without a translation table. The resume key carries |ML, so they never collide.
         bank_npz = np.load(args.multilayer_bank, allow_pickle=True)
         Dml = bank_npz["deltas"].astype(np.float32)          # [n_pairs, n_layers, d]
+        # Banks written before V5 existed carry no `clean` array; V5 is dropped rather than
+        # silently falling back to the additive oracle, which would report a ceiling that is not
+        # one. Every other condition still runs.
+        Cml = bank_npz["clean"].astype(np.float32) if "clean" in bank_npz.files else None
         ml_idx = {str(k): i for i, k in enumerate(bank_npz["item_ids"])}
         missing = [p["snippet_id"] for p in usable if p["snippet_id"] not in ml_idx]
         if missing:
@@ -562,7 +566,24 @@ def main() -> int:
             return {l: torch.randn(Dml.shape[2], generator=g)
                     for l in range(args.layer + 1)}
 
+        def _ml_replace(p):
+            """V5: exact state replacement — returns ABSOLUTE targets, not a direction.
+
+            Assigning h_l := h_clean,l at every layer 0..L makes this position's state identical
+            to the clean run's. It is a ceiling, not deployable (it needs the clean program), and
+            it is the only arm immune to the objection that per-layer directions stop describing
+            the state once the layer beneath has been edited. Returned as a distinct type so the
+            caller cannot route it through the additive path by accident."""
+            V = Cml[ml_idx[p["snippet_id"]]]
+            return {"__absolute__": {l: torch.from_numpy(V[l].copy())
+                                     for l in range(args.layer + 1)}}
+
         conds = {"V3_taskvec": _ml_v3, "V4_oracle": _ml_v4, "R_random": _ml_rand}
+        if Cml is not None:
+            conds["V5_replace"] = _ml_replace
+        else:
+            print("[b4] V5_replace UNAVAILABLE — bank predates absolute clean activations; "
+                  "re-run multilayer_vectors.py to enable it", flush=True)
         if keep is not None:
             conds = {k: v for k, v in conds.items() if k in keep}
         print(f"[b4] multilayer conditions: {sorted(conds)} · bank {tuple(Dml.shape)}", flush=True)
@@ -612,9 +633,17 @@ def main() -> int:
         key = run_key(sid, cname, a)
         try:
             delta = conds[cname](p)
-            spec = (MultiLayerSpec(deltas=delta, alpha=a, positions=args.positions)
-                    if args.multilayer
-                    else SteerSpec(delta=delta, alpha=a, positions=args.positions))
+            if args.multilayer:
+                # V5 hands back absolute targets under a sentinel key, so it cannot be routed
+                # through the additive path by accident — the two are not interchangeable and a
+                # silent mix-up would look like a weak ceiling rather than a bug.
+                if isinstance(delta, dict) and "__absolute__" in delta:
+                    spec = MultiLayerSpec(deltas={}, absolute=delta["__absolute__"],
+                                          positions=args.positions)
+                else:
+                    spec = MultiLayerSpec(deltas=delta, alpha=a, positions=args.positions)
+            else:
+                spec = SteerSpec(delta=delta, alpha=a, positions=args.positions)
             rep, plen = gen(p["code_l1b"], p["call_l1b"], spec)
             got, ok = graded(rep, p["truth"])
             row = {"key": key, "snippet_id": sid, "condition": cname, "alpha": a,

@@ -68,11 +68,38 @@ class MultiLayerSpec:
             generation, which is axis A of the plan, not axis C.
     """
     deltas: dict[int, torch.Tensor]
-    alpha: float
+    alpha: float = 1.0
     positions: str = "last_prompt"
     prefill_only: bool = True
     energy_matched: bool = False
+    absolute: dict[int, torch.Tensor] | None = None
+    """State REPLACEMENT: assign h_l := absolute[l] at the target position, ignoring `deltas`.
+
+    This must be an assignment, not an addition, and the difference is not pedantic. Adding
+    d_l = h_clean,l - h_obf,l at every layer does NOT yield h_clean at every layer: layer l+1
+    receives the state layer l already corrected and adds d_{l+1} on top of it, so the error
+    accumulates linearly with depth (verified: k*|d| at layer k). Only an absolute assignment is
+    idempotent with respect to whatever propagated up from below.
+
+    That makes this the one arm immune to the standing objection to all the others -- that
+    per-layer directions derived at unsteered activations stop describing the state once the
+    layer beneath has been edited. Here the position's state simply IS the clean run's state at
+    every layer 0..L, so if the model still cannot answer, no vector-quality argument survives.
+
+    It is a CEILING, not a deployable intervention: it requires the clean program. Alpha and
+    energy matching do not apply and are refused rather than silently ignored."""
+
+    def __post_init__(self) -> None:
+        if self.absolute is not None and self.energy_matched:
+            raise ValueError("absolute replacement is not scaled; energy_matched would be a "
+                             "silent no-op on it")
+        if self.absolute is not None and self.deltas:
+            raise ValueError("pass either deltas or absolute, not both — one of them would be "
+                             "silently ignored")
     _resolved: set[int] | None = field(default=None, repr=False)
+
+    def layers_written(self) -> set[int]:
+        return set(self.absolute) if self.absolute is not None else set(self.deltas)
 
     def effective_alpha(self) -> float:
         n = max(len(self.deltas), 1)
@@ -109,7 +136,11 @@ class MultiLayerSteerer:
             self._cursor[layer] = start + seq_len
 
             spec = self.spec
-            if spec is None or spec.alpha == 0.0 or layer not in spec.deltas:
+            if spec is None or layer not in spec.layers_written():
+                return output
+            # alpha=0 is inert for additive modes; a replacement has no alpha to zero, so it is
+            # gated on `absolute` being present rather than on alpha.
+            if spec.absolute is None and spec.alpha == 0.0:
                 return output
             # Prefill is the first call at this layer; a decode step has seq_len == 1 and a
             # non-zero start. Restricting to prefill is what isolates the KV question.
@@ -127,12 +158,16 @@ class MultiLayerSteerer:
             if not local:
                 return output
 
-            d = spec.deltas[layer].to(device=hidden.device, dtype=torch.float32)
-            d = (d / d.norm().clamp_min(1e-12)).to(hidden.dtype)
             idx = torch.tensor(sorted(local), device=hidden.device)
             h = hidden.index_select(1, idx)
-            norms = h.norm(dim=-1, keepdim=True)
-            hidden = hidden.index_copy(1, idx, h + spec.effective_alpha() * norms * d)
+            if spec.absolute is not None:
+                tgt = spec.absolute[layer].to(device=hidden.device, dtype=hidden.dtype)
+                upd = tgt.expand_as(h).clone()          # assign, do not add — see `absolute`
+            else:
+                d = spec.deltas[layer].to(device=hidden.device, dtype=torch.float32)
+                dh = (d / d.norm().clamp_min(1e-12)).to(hidden.dtype)
+                upd = h + spec.effective_alpha() * h.norm(dim=-1, keepdim=True) * dh
+            hidden = hidden.index_copy(1, idx, upd)
             self.n_positions_written += len(local)
             return (hidden,) + tuple(output[1:]) if isinstance(output, tuple) else hidden
         return hook

@@ -103,6 +103,7 @@ def main() -> int:
                              "parse_rate": round(st.mean(parse[k]), 4),
                              "vs_unsteered": round(paired(flags, unsteered)[0], 4)}
 
+    v5 = arm("V5_replace", True, 1.0)
     s_v3 = arm("V3_taskvec", False, 1.0)
     m_v3 = arm("V3_taskvec", True, matched_alpha) if matched_alpha else None
     m_v3_loud = arm("V3_taskvec", True, 1.0)
@@ -121,7 +122,11 @@ def main() -> int:
         print(f"[kv] INCOMPLETE — missing arms: {missing}")
         return 1
 
-    for label, a, b in [("multi_v3_matched_vs_single_v3", m_v3, s_v3),
+    # V5 is diagnostic, not a hypothesis test: it is reported and never enters a verdict branch.
+    # Its absence is reported too — a missing ceiling must not look like a ceiling of zero.
+    extra = ([("v5_replace_vs_single_v3", v5, s_v3),
+              ("v5_replace_vs_unsteered", v5, unsteered)] if v5 else [])
+    for label, a, b in extra + [("multi_v3_matched_vs_single_v3", m_v3, s_v3),
                         ("multi_v3_loud_vs_single_v3", m_v3_loud, s_v3),
                         ("multi_random_matched_vs_single_v3", m_rand, s_v3),
                         ("single_v3_vs_unsteered", s_v3, unsteered),
@@ -174,6 +179,30 @@ def main() -> int:
                     "magnitude and not delivery — and a parse-rate collapse reproduces P0.2's "
                     "0.100, which destroyed generation rather than under-delivering."),
     }
+    if v5:
+        v5_parse = rep["arms"].get("multi/V5_replace/a=1", {}).get("parse_rate")
+        d5 = rep["comparisons"]["v5_replace_vs_single_v3"]
+        lo5, hi5 = d5["ci95"]
+        if v5_parse is not None and v5_parse < 0.5:
+            v5_read = ("UNINFORMATIVE — replacing the state destroyed generation (parse rate "
+                       f"{v5_parse:.3f}), reproducing P0.2's failure mode. The read position is "
+                       "load-bearing for fluency; this is not a null.")
+        elif d5["delta"] >= 0.10 and lo5 is not None and lo5 > 0:
+            v5_read = ("A clean state at the read site IS sufficient. If matched multi-V3 did not "
+                       "recover, the reading is 'the channel can deliver, but contrastive "
+                       "directions are not what it needs' — a claim about the vectors, not about "
+                       "beliefs.")
+        else:
+            v5_read = ("The strongest possible write — the position's state IS the clean run's, "
+                       "at every layer 0..L — does not move the task. H-C0 stops being 'no effect "
+                       "found' and becomes bounded: a null of the intervention class, not of the "
+                       "instrument.")
+        rep["v5_ceiling"] = {"delta_vs_single_v3": d5["delta"], "ci95": d5["ci95"],
+                             "parse_rate": v5_parse, "reading": v5_read}
+    else:
+        rep["v5_ceiling"] = {"status": "ABSENT",
+                             "reading": "No V5_replace rows. A missing ceiling is reported, never "
+                                        "treated as a ceiling of zero."}
     rep["finished_utc"] = datetime.now(timezone.utc).isoformat()
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rep, indent=2))
@@ -187,6 +216,7 @@ def main() -> int:
     print(f"\n[kv] floor band +-{FLOOR_BAND:.3f} · matched alpha {matched_alpha}")
     print(f"[kv] VERDICT: {rep['verdict']}")
     print(f"[kv] {rep['reading']}")
+    print(f"[kv] V5 ceiling: {rep['v5_ceiling']}")
     if rep["h_c2_energy_flag"]["flagged"]:
         print(f"[kv] H-C2 FLAGGED: {rep['h_c2_energy_flag']}")
     print(f"[kv] -> {out}")

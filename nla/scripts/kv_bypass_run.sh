@@ -63,6 +63,13 @@ python nla/src/steer_run.py --model "$HOST" --multilayer --only-conditions V3_ta
 # is their only executor, so the verdict cannot drift from the pre-registration text. Its exit
 # code is non-zero only when an ARM IS MISSING (verdict INCOMPLETE) — a real null must not look
 # like a crash, and a missing denominator must not look like a null.
+# ── arm 3: the exact ceiling. Alpha does not apply to a state replacement, so it runs ONCE
+#    rather than once per alpha — the same rows at two alphas would be duplicate work reported
+#    as two conditions.
+echo; echo "=== MULTILAYER V5_replace (exact state replacement, ceiling) ==="
+python nla/src/steer_run.py --model "$HOST" --multilayer --only-conditions V5_replace \
+  --frozen-alpha 1.0 --out-dir "$OUT" --deterministic --save-replies --max-hours 2 || exit 1
+
 echo; echo "=== VERDICT (frozen rules, executed) ==="
 python nla/src/kv_bypass_stats.py --host "$HOST" \
   --results "$OUT/steer_results.jsonl" --baseline "$OUT/baseline.jsonl" \

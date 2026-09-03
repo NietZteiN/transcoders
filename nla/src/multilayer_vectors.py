@@ -116,18 +116,26 @@ def main() -> int:
           flush=True)
 
     # ── 1. per-layer contrastive differences, one forward pass per condition per item ──
-    deltas = []
+    # The CLEAN absolute activations are saved alongside the differences, because state
+    # replacement (V5) must ASSIGN h_l := h_clean,l rather than add h_clean,l - h_obf,l. Adding
+    # the difference at every layer does not reproduce the clean state: layer l+1 receives the
+    # state layer l already corrected and adds its own difference on top, so error accumulates
+    # linearly with depth. Only an absolute target is idempotent w.r.t. what propagated up.
+    deltas, cleans = [], []
     for i, p in enumerate(pairs):
         c = all_layer_acts(model, tokz, build_user(p["code_l0"], p["call_l0"]))
         o = all_layer_acts(model, tokz, build_user(p["code_l1b"], p["call_l1b"]))
         deltas.append(c - o)
+        cleans.append(c)
         if (i + 1) % 10 == 0:
             print(f"[mlv]   extracted {i + 1}/{len(pairs)}", flush=True)
     D = np.stack(deltas).astype(np.float32)          # [n_pairs, n_layers, d]
+    C = np.stack(cleans).astype(np.float32)          # [n_pairs, n_layers, d]
     ids_ = [p["snippet_id"] for p in pairs]
 
     bank = out / "multilayer_bank.npz"
-    np.savez_compressed(bank, deltas=D, item_ids=np.array(ids_), target_layer=L, seed=SEED)
+    np.savez_compressed(bank, deltas=D, clean=C, item_ids=np.array(ids_),
+                        target_layer=L, seed=SEED)
     print(f"[mlv] bank {tuple(D.shape)} -> {bank}", flush=True)
 
     # Consistency check against P0.1's published layer-20 vector geometry: the mean direction at
