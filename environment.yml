@@ -1,7 +1,7 @@
 # Conda environment for the transcoders/ sub-project (Instrument 3: SAE + transcoder analysis).
 # Create with an explicit PREFIX under /data (NOT $HOME — small NFS):
 #
-#   conda env create -p /data/jvl210002/conda_envs/transcoders-mi -f environment.yml
+#   conda env create -p /work/jvl210002/conda_envs/transcoders-mi -f environment.yml
 #   source scripts/env.sh          # activation + LD_LIBRARY_PATH + TMPDIR/HF_HOME
 #
 # Host: csr-94608.utdallas.edu · 4× RTX A6000 (48 GB) · driver 595.71.05 / CUDA 13.2.
