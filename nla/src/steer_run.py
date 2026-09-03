@@ -53,8 +53,24 @@ _PROJ = _NLA_ROOT.parent
 sys.path.insert(0, str(_NLA_ROOT / "vendor" / "nla-repo"))
 sys.path.insert(0, str(_HERE))
 
-TARGET_MODEL = "Qwen/Qwen2.5-7B-Instruct"
-LAYER_INDEX = 20
+# HOSTS. The banked B4/B5/P0 corpus is Qwen2.5-7B at layer 20 — that is a historical fact about
+# the existing results and cannot be re-labelled. New runs go to a non-Chinese host under the
+# 2026-09-02 model constraint; gemma12b is the one with a released NLA pair (kitft/nla-gemma3-12b
+# -L32-{ar,av}), so it is the only host where the AR-derived conditions could ever run. Layer is
+# the NLA's training layer where one exists, mid-depth otherwise.
+HOSTS = {
+    "qwen7b":   ("Qwen/Qwen2.5-7B-Instruct", 20),     # banked corpus only — see --model guard
+    "gemma12b": ("google/gemma-3-12b-it", 32),
+    "llama8b":  ("meta-llama/Llama-3.1-8B-Instruct", 16),
+}
+DEFAULT_HOST = "gemma12b"
+# The AR/AV checkpoint under nla/data/checkpoints/ is the Qwen pair — its config declares
+# Qwen2ForCausalLM, hidden_size 3584. Reconstructing into a different model's residual basis is
+# not a defined operation and would not fail loudly (a 3584-vector steering a 3840-dim stream
+# raises; a same-width host would silently produce nonsense), so the host is pinned explicitly.
+# The released Gemma pair (kitft/nla-gemma3-12b-L32-{ar,av}) is in the HF cache but NOT wired in.
+AR_HOST = "qwen7b"
+TARGET_MODEL, LAYER_INDEX = HOSTS[DEFAULT_HOST]
 SEED = 20260724
 # 1100, matching `overnight_capture.MAX_NEW_GEN`. The first smoke used 400 and every reply hit
 # the wall mid-reasoning (~1,500 chars) without ever emitting the answer line, so all three
@@ -204,6 +220,23 @@ def main() -> int:
     ap.add_argument("--baseline-only", action="store_true",
                     help="run the unsteered baseline pass and stop — no steering battery, no "
                          "prompt-only control. For collecting labels and reply lengths cheaply.")
+    ap.add_argument("--model", default=DEFAULT_HOST, choices=sorted(HOSTS),
+                    help="subject host. Default is the non-Chinese host required by the "
+                         "2026-09-02 constraint; qwen7b is retained ONLY so the banked corpus "
+                         "stays reproducible and requires --allow-banked-host.")
+    ap.add_argument("--allow-banked-host", action="store_true",
+                    help="acknowledge that --model qwen7b re-runs a model the project is no "
+                         "longer permitted to run, and is being used to reproduce banked rows.")
+    ap.add_argument("--multilayer", action="store_true",
+                    help="Close the KV bypass: write at EVERY layer 0..--layer during prefill, "
+                         "so the K/V entries later tokens attend to carry the correction. The "
+                         "single-layer hook leaves layers 0..L untouched at the edited position "
+                         "(measured: max |delta| = 0.0), so downstream attention reads the "
+                         "un-edited decoy through the bottom L+1 layers. AR-derived conditions "
+                         "are unavailable here — the AR exists at one layer only.")
+    ap.add_argument("--multilayer-bank", default=None,
+                    help="per-layer contrastive differences from multilayer_vectors.py; "
+                         "defaults to the bank for the chosen --model host")
     ap.add_argument("--max-hours", type=float, default=11.0)
     # The B4 run stored answers and reply LENGTHS but not the replies themselves, so "what did
     # steering actually do to the text" was unanswerable after the fact. These two flags make a
@@ -215,6 +248,18 @@ def main() -> int:
     ap.add_argument("--save-replies", action="store_true",
                     help="store the generated text alongside the grade")
     args = ap.parse_args()
+    TARGET_MODEL, host_layer = HOSTS[args.model]
+    if args.model == "qwen7b" and not args.allow_banked_host:
+        raise SystemExit(
+            "--model qwen7b is the banked host and the project is no longer permitted to run "
+            "Chinese models. Pass --allow-banked-host only to reproduce banked rows.")
+    # --layer defaults to the OLD constant, so an unset --layer must follow the chosen host or a
+    # gemma run would silently steer layer 20 of 48 while every artifact says otherwise.
+    if args.layer == LAYER_INDEX and args.model != DEFAULT_HOST:
+        args.layer = host_layer
+    if args.multilayer_bank is None:
+        args.multilayer_bank = str(_PROJ / "data/nla/p0/steerv2" / args.model
+                                   / "multilayer_bank.npz")
 
     import os
 
@@ -269,17 +314,36 @@ def main() -> int:
             if args.only_conditions else None)
     AR_CONDS = {"V1_gloss", "V2_wordedit", "F_foreign", "A_antipodal"}
     need_ar = (keep is None) or bool(keep & AR_CONDS) or args.with_v2
-    if args.layer != LAYER_INDEX and need_ar:
+    if need_ar and args.model != AR_HOST:
+        raise SystemExit(
+            f"--model {args.model} requests AR-derived conditions "
+            f"({sorted((keep or AR_CONDS) & AR_CONDS)}), but the AR checkpoint on disk belongs to "
+            f"{AR_HOST} ({HOSTS[AR_HOST][0]}). Restrict with "
+            f"--only-conditions V3_taskvec,V4_oracle,R_random.")
+    if args.layer != host_layer and need_ar:
         raise SystemExit(
             f"--layer {args.layer} requests AR-derived conditions "
             f"({sorted((keep or AR_CONDS) & AR_CONDS)}), but the AR checkpoint is trained at "
-            f"layer {LAYER_INDEX}. Restrict with --only-conditions V3_taskvec,V4_oracle,R_random.")
+            f"layer {host_layer}. Restrict with --only-conditions V3_taskvec,V4_oracle,R_random.")
 
     ex = ActivationExtractor(TARGET_MODEL, args.layer, device=args.device)
     ar = NLACritic(_NLA_ROOT / "data" / "checkpoints" / "ar",
                    device=args.device) if need_ar else None
     tokz = ex.tokenizer
-    steerer = ActivationSteerer(ex.model, args.layer)
+    if args.multilayer:
+        # The AR guard above already rejects AR-derived conditions off-layer; multilayer mode
+        # is off-layer at every layer but the target, so it must reject them at L20 too.
+        if need_ar:
+            raise SystemExit(
+                "--multilayer cannot run AR-derived conditions: the AR is trained at layer "
+                f"{host_layer} only, so no licensed per-layer NLA direction exists. Restrict "
+                "with --only-conditions V3_taskvec,V4_oracle,R_random.")
+        from steer_multilayer import MultiLayerSpec, MultiLayerSteerer
+        steerer = MultiLayerSteerer(ex.model, range(args.layer + 1))
+        print(f"[b4] MULTILAYER: writing layers 0..{args.layer} during prefill "
+              f"({args.layer + 1} sites)", flush=True)
+    else:
+        steerer = ActivationSteerer(ex.model, args.layer)
     print(f"[b4] layer {args.layer} (read and write) · AR "
           f"{'loaded' if need_ar else 'skipped — no AR-derived condition requested'}", flush=True)
     wall = WallGuard(args.max_hours)
@@ -288,7 +352,13 @@ def main() -> int:
         user = build_user(code, call) + extra
         ids = tokz.apply_chat_template([{"role": "user", "content": user}], tokenize=True,
                                        add_generation_prompt=True, return_dict=False)
-        steerer.set_spec(spec, prompt_len=len(ids), max_total=len(ids) + args.max_new_gen)
+        if args.multilayer:
+            # MultiLayerSpec resolves "last_prompt" inside the hook from the prefill call's own
+            # sequence length, so it needs no prompt_len — and must not be handed one, or the
+            # two position conventions could silently diverge.
+            steerer.set_spec(spec)
+        else:
+            steerer.set_spec(spec, prompt_len=len(ids), max_total=len(ids) + args.max_new_gen)
         with torch.no_grad():
             o = ex.model.generate(torch.tensor([ids], device=ex.model.device),
                                   max_new_tokens=args.max_new_gen, do_sample=False,
@@ -347,7 +417,7 @@ def main() -> int:
         ex.close()
         (out_dir / "run_manifest.json").write_text(json.dumps({
             "experiment": "n12_b4_baseline_only", "seed": SEED, "argv": sys.argv,
-            "model": TARGET_MODEL, "layer": args.layer, "baseline_only": True,
+            "model": TARGET_MODEL, "host": args.model, "layer": args.layer, "baseline_only": True,
             "max_new_gen": args.max_new_gen, "n_pairs": len(usable),
             "n_wrong_baseline": n_wrong, "elapsed_hours": round(wall.elapsed_h(), 3),
             "finished_utc": datetime.now(timezone.utc).isoformat()}, indent=2))
@@ -446,6 +516,57 @@ def main() -> int:
         # row must be read against its own n, not the battery's.
         conds["V2_wordedit"] = lambda p: v2_cache[p["snippet_id"]]
 
+    if args.multilayer:
+        # Per-layer V3/V4 replace their single-layer namesakes wholesale, keeping the condition
+        # NAMES identical so steer_stats pairs multilayer rows against the banked single-layer
+        # rows without a translation table. The resume key carries |ML, so they never collide.
+        bank_npz = np.load(args.multilayer_bank, allow_pickle=True)
+        Dml = bank_npz["deltas"].astype(np.float32)          # [n_pairs, n_layers, d]
+        ml_idx = {str(k): i for i, k in enumerate(bank_npz["item_ids"])}
+        missing = [p["snippet_id"] for p in usable if p["snippet_id"] not in ml_idx]
+        if missing:
+            raise SystemExit(f"--multilayer bank is missing {len(missing)} usable items "
+                             f"(first: {missing[:3]}); re-run multilayer_vectors.py")
+        # A bank of the wrong width or depth is the silent failure this whole mode is exposed
+        # to: a [n, 28, 3584] qwen bank against a 48-layer 3840-wide gemma would raise on the
+        # first write, but a same-width host would not, and would steer with vectors extracted
+        # at layers that do not correspond. Check both against the live model, not the filename.
+        if Dml.shape[2] != ex.d_model:
+            raise SystemExit(f"bank width {Dml.shape[2]} != model d_model {ex.d_model} "
+                             f"({args.multilayer_bank}) — wrong host's bank")
+        if Dml.shape[1] != ex.n_layers:
+            raise SystemExit(f"bank depth {Dml.shape[1]} != model n_layers {ex.n_layers} "
+                             f"({args.multilayer_bank}) — wrong host's bank")
+        if args.layer >= Dml.shape[1]:
+            raise SystemExit(f"--layer {args.layer} outside bank depth {Dml.shape[1]}")
+        print(f"[b4] bank {tuple(Dml.shape)} matches host "
+              f"(d_model {ex.d_model}, {ex.n_layers} layers)", flush=True)
+        n_ml = Dml.shape[0]
+        Dsum = Dml.sum(axis=0)
+
+        def _ml_v3(p):
+            """Leave-one-out mean, per layer. Fit on pairs, applied to items — so the applied
+            item must be excluded or the direction leaks its own answer."""
+            i = ml_idx[p["snippet_id"]]
+            V = (Dsum - Dml[i]) / (n_ml - 1)
+            return {l: torch.from_numpy(V[l].copy()) for l in range(args.layer + 1)}
+
+        def _ml_v4(p):
+            V = Dml[ml_idx[p["snippet_id"]]]
+            return {l: torch.from_numpy(V[l].copy()) for l in range(args.layer + 1)}
+
+        def _ml_rand(p):
+            """Per-layer random directions. The hook normalises each and scales by the LOCAL
+            activation norm, so these are already norm-matched to V3 layer by layer."""
+            g = torch.Generator().manual_seed(SEED + hash(p["snippet_id"]) % 9973)
+            return {l: torch.randn(Dml.shape[2], generator=g)
+                    for l in range(args.layer + 1)}
+
+        conds = {"V3_taskvec": _ml_v3, "V4_oracle": _ml_v4, "R_random": _ml_rand}
+        if keep is not None:
+            conds = {k: v for k, v in conds.items() if k in keep}
+        print(f"[b4] multilayer conditions: {sorted(conds)} · bank {tuple(Dml.shape)}", flush=True)
+
     # ── stage 2: alpha sweep, then the frozen battery ─────────────────────
     alphas = ([args.frozen_alpha] if args.frozen_alpha
               else [float(a) for a in args.alphas.split(",")])
@@ -463,7 +584,15 @@ def main() -> int:
             base = f"{base}|{args.positions}"
         # Same reasoning, one layer down: the banked rows carry no layer tag and are L20, so
         # L20 keeps the bare key and every other layer is suffixed.
-        return base if args.layer == LAYER_INDEX else f"{base}|L{args.layer}"
+        if args.layer != host_layer:
+            base = f"{base}|L{args.layer}"
+        # The banked rows are qwen7b and carry no host tag, so qwen7b keeps the bare key and
+        # every other host is suffixed. Without this a gemma row would resume as a banked one.
+        if args.model != "qwen7b":
+            base = f"{base}|{args.model}"
+        # Multilayer rows are a different intervention at the same layer and alpha. Without this
+        # they would collide with the banked single-layer rows and resume as "done".
+        return f"{base}|ML" if args.multilayer else base
 
     if args.only_conditions:
         keep = {c.strip() for c in args.only_conditions.split(",") if c.strip()}
@@ -483,11 +612,15 @@ def main() -> int:
         key = run_key(sid, cname, a)
         try:
             delta = conds[cname](p)
-            rep, plen = gen(p["code_l1b"], p["call_l1b"],
-                            SteerSpec(delta=delta, alpha=a, positions=args.positions))
+            spec = (MultiLayerSpec(deltas=delta, alpha=a, positions=args.positions)
+                    if args.multilayer
+                    else SteerSpec(delta=delta, alpha=a, positions=args.positions))
+            rep, plen = gen(p["code_l1b"], p["call_l1b"], spec)
             got, ok = graded(rep, p["truth"])
             row = {"key": key, "snippet_id": sid, "condition": cname, "alpha": a,
                    "positions": args.positions, "layer": args.layer,
+                   "multilayer": bool(args.multilayer),
+                   "n_layers_written": (args.layer + 1) if args.multilayer else 1,
                    "answer": got, "correct": ok, "parsed": got is not None,
                    "baseline_correct": base[sid]["l1b_correct"],
                    "reply_chars": len(rep)}
@@ -525,7 +658,7 @@ def main() -> int:
 
     (out_dir / "run_manifest.json").write_text(json.dumps({
         "experiment": "n12_b4_steering_gate", "seed": SEED, "argv": sys.argv,
-        "model": TARGET_MODEL, "layer": args.layer, "alphas": alphas,
+        "model": TARGET_MODEL, "host": args.model, "layer": args.layer, "alphas": alphas,
         "deterministic": bool(args.deterministic), "max_new_gen": args.max_new_gen,
         "n_pairs": len(usable), "n_wrong_baseline": n_wrong,
         "conditions": list(conds) + ["P_prompt"],
