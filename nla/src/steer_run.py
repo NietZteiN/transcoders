@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 import sys
@@ -64,12 +65,27 @@ HOSTS = {
     "llama8b":  ("meta-llama/Llama-3.1-8B-Instruct", 16),
 }
 DEFAULT_HOST = "gemma12b"
-# The AR/AV checkpoint under nla/data/checkpoints/ is the Qwen pair — its config declares
-# Qwen2ForCausalLM, hidden_size 3584. Reconstructing into a different model's residual basis is
-# not a defined operation and would not fail loudly (a 3584-vector steering a 3840-dim stream
-# raises; a same-width host would silently produce nonsense), so the host is pinned explicitly.
-# The released Gemma pair (kitft/nla-gemma3-12b-L32-{ar,av}) is in the HF cache but NOT wired in.
-AR_HOST = "qwen7b"
+# AR (reconstructor) checkpoints, per host. Reconstructing into a different model's residual
+# basis is not a defined operation and would not always fail loudly — a 3584-wide vector steering
+# a 3840-dim stream raises, but a same-width host would silently produce nonsense — so the AR is
+# resolved from the host and never from a bare default path.
+#
+# Each checkpoint carries its own nla_meta.yaml sidecar with the constants that matter, and they
+# are NOT interchangeable: Qwen mse_scale 59.867 / layer 20 / d 3584, Gemma mse_scale 61.968 /
+# layer 32 / d 3840. (The AV injection_scale differs by ~500x — 150 vs 80000 — which is the
+# activation-norm gap between the hosts; the AR does not inject, so it carries null there.)
+def _hf_snapshot(repo: str) -> Path | None:
+    """Resolve an HF cache snapshot dir, or None if the model was never downloaded."""
+    root = Path(os.environ.get("HF_HOME", Path.home() / ".cache/huggingface")) / "hub"
+    d = root / f"models--{repo.replace('/', '--')}" / "snapshots"
+    snaps = sorted(d.glob("*")) if d.exists() else []
+    return snaps[-1] if snaps else None
+
+
+AR_CHECKPOINTS = {
+    "qwen7b":   _NLA_ROOT / "data" / "checkpoints" / "ar",
+    "gemma12b": _hf_snapshot("kitft/nla-gemma3-12b-L32-ar"),
+}
 TARGET_MODEL, LAYER_INDEX = HOSTS[DEFAULT_HOST]
 SEED = 20260724
 # 1100, matching `overnight_capture.MAX_NEW_GEN`. The first smoke used 400 and every reply hit
@@ -189,14 +205,18 @@ def main() -> int:
                     help="include V2, the minimal single-word-edit vector (no AV server needed "
                          "— the edit is applied to the gloss, same text V1 reconstructs)")
     ap.add_argument("--positions", default="last_prompt",
-                    choices=["last_prompt", "all_reply", "all"],
-                    help="where to inject. The banked B4 run used last_prompt (the site the "
-                         "NLA paper steers) and hardcoded it; the mechanism always supported "
-                         "the others, so a null at one position was never a null in general.")
-    # P0.4. LAYER_INDEX=20 is where the released NLA pair was trained, not a measured
-    # choice; P0.1 found cross-item coherence of the task direction peaks at 13 instead.
-    # V3/V4/R are pure activation arithmetic and are defined at every layer, so the read
-    # site and the write site move together and no autoencoder is involved.
+                    help="where to write. last_prompt (the banked default, ONE token) · "
+                         "id_spans (the annotated identifier tokens — 11 spans per item, never "
+                         "used before) · all_reply · all. id_spans is resolved per item from the "
+                         "stimulus's own character offsets and verified against the tokenizer's "
+                         "offset mapping; items that cannot be verified are skipped and counted.\n"
+                         "The banked corpus is last_prompt ONLY: the original NLA paper steered "
+                         "there and the runner hardcoded it, so a null at one position was never "
+                         "a null in general.")
+    # P0.4. LAYER_INDEX is where the released NLA pair was trained, not a measured choice; P0.1
+    # found cross-item coherence of the task direction peaks elsewhere. V3/V4/R are pure
+    # activation arithmetic and are defined at every layer, so the read/write site is free for
+    # them — but the AR is not, which the sidecar layer check enforces.
     ap.add_argument("--layer", type=int, default=LAYER_INDEX,
                     help="decoder block whose OUTPUT is both read and written. Read and write "
                          "must be the same site: ActivationExtractor and ActivationSteerer both "
@@ -314,12 +334,26 @@ def main() -> int:
             if args.only_conditions else None)
     AR_CONDS = {"V1_gloss", "V2_wordedit", "F_foreign", "A_antipodal"}
     need_ar = (keep is None) or bool(keep & AR_CONDS) or args.with_v2
-    if need_ar and args.model != AR_HOST:
+    ar_path = AR_CHECKPOINTS.get(args.model)
+    if need_ar and ar_path is None:
         raise SystemExit(
             f"--model {args.model} requests AR-derived conditions "
-            f"({sorted((keep or AR_CONDS) & AR_CONDS)}), but the AR checkpoint on disk belongs to "
-            f"{AR_HOST} ({HOSTS[AR_HOST][0]}). Restrict with "
-            f"--only-conditions V3_taskvec,V4_oracle,R_random.")
+            f"({sorted((keep or AR_CONDS) & AR_CONDS)}), but no AR checkpoint is registered for "
+            f"that host. Registered: {sorted(k for k, v in AR_CHECKPOINTS.items() if v)}. "
+            f"Restrict with --only-conditions V3_taskvec,V4_oracle,R_random.")
+    if need_ar:
+        # The sidecar is the source of truth for the layer, not the CLI. An AR trained at one
+        # layer reconstructs into that layer's basis only; steering elsewhere with it is the
+        # exact error P0.1's HARD verdict forbids.
+        import yaml as _yaml
+        _meta = _yaml.safe_load((Path(ar_path) / "nla_meta.yaml").read_text())
+        _ar_layer = _meta.get("extraction_layer_index")
+        _ar_d = _meta.get("d_model")
+        if _ar_layer is not None and int(_ar_layer) != args.layer:
+            raise SystemExit(
+                f"AR checkpoint {ar_path} was trained at layer {_ar_layer}, but --layer is "
+                f"{args.layer}. Reconstructing into another layer's basis is undefined.")
+        print(f"[b4] AR {ar_path} · layer {_ar_layer} · d_model {_ar_d}", flush=True)
     if args.layer != host_layer and need_ar:
         raise SystemExit(
             f"--layer {args.layer} requests AR-derived conditions "
@@ -327,8 +361,7 @@ def main() -> int:
             f"layer {host_layer}. Restrict with --only-conditions V3_taskvec,V4_oracle,R_random.")
 
     ex = ActivationExtractor(TARGET_MODEL, args.layer, device=args.device)
-    ar = NLACritic(_NLA_ROOT / "data" / "checkpoints" / "ar",
-                   device=args.device) if need_ar else None
+    ar = NLACritic(ar_path, device=args.device) if need_ar else None
     tokz = ex.tokenizer
     if args.multilayer:
         # The AR guard above already rejects AR-derived conditions off-layer; multilayer mode
@@ -620,6 +653,26 @@ def main() -> int:
         conds = {k: v for k, v in conds.items() if k in keep}
         print(f"[b4] conditions restricted to {sorted(conds)}", flush=True)
 
+    span_pos: dict[str, list[int]] = {}
+    if args.positions == "id_spans":
+        from span_positions import span_token_positions
+        unmapped = []
+        for p in usable:
+            pos, diag = span_token_positions(tokz, build_user(p["code_l1b"], p["call_l1b"]),
+                                             p["code_l1b"], p.get("id_spans_l1b") or [])
+            if pos:
+                span_pos[p["snippet_id"]] = pos
+            else:
+                unmapped.append((p["snippet_id"], diag.get("reason")))
+        n_tok = [len(v) for v in span_pos.values()]
+        print(f"[b4] id_spans: {len(span_pos)}/{len(usable)} items mapped · "
+              f"median {int(np.median(n_tok)) if n_tok else 0} tokens/item "
+              f"(range {min(n_tok) if n_tok else 0}-{max(n_tok) if n_tok else 0})", flush=True)
+        for sid, why in unmapped[:5]:
+            print(f"[b4]   unmapped {sid}: {why}", flush=True)
+        if not span_pos:
+            raise SystemExit("--positions id_spans mapped no items; refusing to steer position 0")
+
     t0 = time.time()
     todo = [(p, cname, a) for p in usable for cname in conds for a in alphas]
     todo = [t for t in todo if run_key(t[0]["snippet_id"], t[1], t[2]) not in rdone]
@@ -633,17 +686,27 @@ def main() -> int:
         key = run_key(sid, cname, a)
         try:
             delta = conds[cname](p)
+            # id_spans is per-item: the identifier tokens live at different indices in every
+            # prompt, so it cannot be a symbolic spec resolved from prompt_len alone.
+            pos_arg = args.positions
+            if args.positions == "id_spans":
+                pos_arg = span_pos.get(sid)
+                if not pos_arg:
+                    rsink.append({"key": key, "snippet_id": sid, "condition": cname, "alpha": a,
+                                  "positions": args.positions, "layer": args.layer,
+                                  "error": "id_spans unmapped", "skipped": True})
+                    continue
             if args.multilayer:
                 # V5 hands back absolute targets under a sentinel key, so it cannot be routed
                 # through the additive path by accident — the two are not interchangeable and a
                 # silent mix-up would look like a weak ceiling rather than a bug.
                 if isinstance(delta, dict) and "__absolute__" in delta:
                     spec = MultiLayerSpec(deltas={}, absolute=delta["__absolute__"],
-                                          positions=args.positions)
+                                          positions=pos_arg)
                 else:
                     spec = MultiLayerSpec(deltas=delta, alpha=a, positions=args.positions)
             else:
-                spec = SteerSpec(delta=delta, alpha=a, positions=args.positions)
+                spec = SteerSpec(delta=delta, alpha=a, positions=pos_arg)
             rep, plen = gen(p["code_l1b"], p["call_l1b"], spec)
             got, ok = graded(rep, p["truth"])
             row = {"key": key, "snippet_id": sid, "condition": cname, "alpha": a,
