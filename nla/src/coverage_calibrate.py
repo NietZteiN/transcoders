@@ -43,7 +43,13 @@ from span_positions import span_token_positions  # noqa: E402
 
 SEED = 20260724
 REF_ALPHA = 1.0
-ALPHAS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 4.0]
+# Widened 2026-09-03 after the first calibration REFUSED: id_spans reached only r = 0.482 at
+# alpha 4.0 against a 1.277 target (ratio 0.38, outside the [0.5, 2.0] band). This is the rule's
+# own pre-specified remedy — widen and re-run — and it consults displacement only, never an
+# outcome. The upper end is deliberately absurd: if matching requires alpha >= 16, that fact is
+# the finding, because a per-token edit of 16x the local activation norm is far outside any
+# regime this project has tested and C-2 (parse collapse) becomes the expected result.
+ALPHAS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]
 
 
 def main() -> int:
