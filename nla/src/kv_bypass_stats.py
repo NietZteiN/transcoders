@@ -103,6 +103,7 @@ def main() -> int:
                              "parse_rate": round(st.mean(parse[k]), 4),
                              "vs_unsteered": round(paired(flags, unsteered)[0], 4)}
 
+    prompt = arm("P_prompt", False, 0.0)
     v5 = arm("V5_replace", True, 1.0)
     s_v3 = arm("V3_taskvec", False, 1.0)
     m_v3 = arm("V3_taskvec", True, matched_alpha) if matched_alpha else None
@@ -126,6 +127,11 @@ def main() -> int:
     # Its absence is reported too — a missing ceiling must not look like a ceiling of zero.
     extra = ([("v5_replace_vs_single_v3", v5, s_v3),
               ("v5_replace_vs_unsteered", v5, unsteered)] if v5 else [])
+    # The prompting baseline is not optional decoration. CLAUDE.md S4: every steering claim ships
+    # with a prompting baseline, because prompting has repeatedly beaten steering (AxBench, ICML
+    # 2025). A multi-layer gain that does not clear prompting is a mechanism result, not a method.
+    if prompt:
+        extra += [("prompt_vs_unsteered", prompt, unsteered)]
     for label, a, b in extra + [("multi_v3_matched_vs_single_v3", m_v3, s_v3),
                         ("multi_v3_loud_vs_single_v3", m_v3_loud, s_v3),
                         ("multi_random_matched_vs_single_v3", m_rand, s_v3),
@@ -179,6 +185,21 @@ def main() -> int:
                     "magnitude and not delivery — and a parse-rate collapse reproduces P0.2's "
                     "0.100, which destroyed generation rather than under-delivering."),
     }
+    if prompt and m_v3:
+        gain, _, n_pp = paired(m_v3, prompt)
+        rep["prompting_baseline"] = {
+            "prompt_acc": round(st.mean(prompt.values()), 4),
+            "multi_v3_matched_minus_prompt": round(gain, 4), "n_paired": n_pp,
+            "beats_prompting": gain > 0,
+            "reading": ("CLAUDE.md S4 requires this comparison. If matched multi-V3 does not beat "
+                        "prompting, any positive result is a claim about MECHANISM — that the "
+                        "channel can carry the edit — and explicitly not a claim that steering is "
+                        "a useful method."),
+        }
+    else:
+        rep["prompting_baseline"] = {"status": "ABSENT",
+                                     "reading": "No P_prompt rows; the mandated baseline is "
+                                                "missing and must be reported as missing."}
     if v5:
         v5_parse = rep["arms"].get("multi/V5_replace/a=1", {}).get("parse_rate")
         d5 = rep["comparisons"]["v5_replace_vs_single_v3"]
@@ -216,6 +237,7 @@ def main() -> int:
     print(f"\n[kv] floor band +-{FLOOR_BAND:.3f} · matched alpha {matched_alpha}")
     print(f"[kv] VERDICT: {rep['verdict']}")
     print(f"[kv] {rep['reading']}")
+    print(f"[kv] prompting baseline: {rep['prompting_baseline']}")
     print(f"[kv] V5 ceiling: {rep['v5_ceiling']}")
     if rep["h_c2_energy_flag"]["flagged"]:
         print(f"[kv] H-C2 FLAGGED: {rep['h_c2_energy_flag']}")

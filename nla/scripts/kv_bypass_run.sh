@@ -24,18 +24,27 @@ sha256sum nla/src/steer_run.py nla/src/steer_multilayer.py nla/src/multilayer_ve
 # the whole job stops here rather than running an uncontrolled comparison.
 MA=$(python nla/src/matched_alpha.py "$PROJ/data/nla/p0/steerv2/$HOST/energy_match.json") || { echo "FATAL: energy match unusable"; exit 1; }
 echo "# matched multi-layer alpha (frozen rule): $MA"
+# NOTE: --deterministic is deliberately NOT used. Per 2026-08-29 it does not lower
+# the reproducibility floor and it changes answers (0.8000 agreement vs default),
+# so it would fork the corpus away from every banked row.
 
 # ── smoke: 3 items, one condition, both modes. Proves the multilayer path generates at all
 #    before committing ~1.5 GPU-h to it. Project rule: micro-scale first.
 echo; echo "=== SMOKE ==="
 python nla/src/steer_run.py --model "$HOST" --multilayer --limit 3 --only-conditions V3_taskvec \
-  --frozen-alpha "$MA" --out-dir "$SMOKE" --deterministic --save-replies || exit 1
+  --frozen-alpha "$MA" --out-dir "$SMOKE" --save-replies || exit 1
 grep -c . "$SMOKE/steer_results.jsonl" || true
 python - "$SMOKE/steer_results.jsonl" <<'EOF' || exit 1
 import json, sys
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-assert rows, "smoke produced no rows"
-assert all(r.get("multilayer") for r in rows), "rows not tagged multilayer"
+allrows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+# P_prompt is the prompting baseline CLAUDE.md requires beside every steering claim. It is not a
+# steered generation -- alpha 0, no layer, no hook -- so it carries no multilayer tag and must be
+# excluded from checks about the steering path rather than counted as a failure of it.
+rows = [r for r in allrows if r["condition"] != "P_prompt"]
+prompt_rows = [r for r in allrows if r["condition"] == "P_prompt"]
+assert rows, "smoke produced no steered rows"
+assert all(r.get("multilayer") for r in rows), "steered rows not tagged multilayer"
+print(f"[smoke] {len(prompt_rows)} prompting-baseline rows present (not steered, as expected)")
 exp = rows[0]["layer"] + 1
 assert all(r["n_layers_written"] == exp for r in rows), f"wrong layer count (want {exp})"
 par = sum(r["parsed"] for r in rows) / len(rows)
@@ -51,13 +60,13 @@ EOF
 #    with the reproducibility floor.
 echo; echo "=== SINGLE-LAYER (V3, V4) ==="
 python nla/src/steer_run.py --model "$HOST" --only-conditions V3_taskvec,V4_oracle \
-  --frozen-alpha 1.0 --out-dir "$OUT" --deterministic --save-replies --max-hours 3 || exit 1
+  --frozen-alpha 1.0 --out-dir "$OUT" --save-replies --max-hours 3 || exit 1
 
 # ── arm 2: multilayer at the matched alpha (primary) AND at alpha=1.0 (the "loud" arm that
 #    shows what uncontrolled coverage does). R_random is the control the P0.2 rule requires.
 echo; echo "=== MULTILAYER (V3, V4, R_random) at alpha in {$MA, 1.0} ==="
 python nla/src/steer_run.py --model "$HOST" --multilayer --only-conditions V3_taskvec,V4_oracle,R_random \
-  --alphas "$MA,1.0" --out-dir "$OUT" --deterministic --save-replies --max-hours 4 || exit 1
+  --alphas "$MA,1.0" --out-dir "$OUT" --save-replies --max-hours 4 || exit 1
 
 # The pre-registered rules are executed arithmetically, never typed by hand: kv_bypass_stats.py
 # is their only executor, so the verdict cannot drift from the pre-registration text. Its exit
@@ -68,7 +77,7 @@ python nla/src/steer_run.py --model "$HOST" --multilayer --only-conditions V3_ta
 #    as two conditions.
 echo; echo "=== MULTILAYER V5_replace (exact state replacement, ceiling) ==="
 python nla/src/steer_run.py --model "$HOST" --multilayer --only-conditions V5_replace \
-  --frozen-alpha 1.0 --out-dir "$OUT" --deterministic --save-replies --max-hours 2 || exit 1
+  --frozen-alpha 1.0 --out-dir "$OUT" --save-replies --max-hours 2 || exit 1
 
 echo; echo "=== VERDICT (frozen rules, executed) ==="
 python nla/src/kv_bypass_stats.py --host "$HOST" \
