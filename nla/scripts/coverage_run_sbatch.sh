@@ -43,6 +43,16 @@ echo; echo "=== id_spans, ENERGY-matched, alpha $A_EN ==="
 python nla/src/steer_run.py --model "$HOST" --with-v2 --only-conditions "$CONDS" \
   --positions id_spans --frozen-alpha "$A_EN" --out-dir "$OUT" --save-replies --max-hours 3 || exit 1
 
+# Arm 3, max-delivery: alpha 8.0, the knee of the delivery curve, past which each doubling buys
+# under 15% (id_spans asymptotes at r~0.618 = 48.8% of the reference and cannot be matched at any
+# alpha). Selected on the displacement curve ALONE, before any generation, and declared in
+# log/nla-harness/2026-09-03_coverage-delivery-ceiling.md. A per-token edit at 8x the local
+# activation norm is outside every regime tested here, so a parse collapse is an expected and
+# informative outcome, not a failure.
+echo; echo "=== id_spans, MAX-DELIVERY, alpha 8.0 ==="
+python nla/src/steer_run.py --model "$HOST" --with-v2 --only-conditions "$CONDS" \
+  --positions id_spans --frozen-alpha 8.0 --out-dir "$OUT" --save-replies --max-hours 3 || exit 1
+
 echo; echo "=== rows by arm ==="
 python - "$OUT/steer_results.jsonl" <<'EOF'
 import json, sys, collections
