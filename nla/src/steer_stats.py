@@ -108,9 +108,23 @@ def main() -> int:
 
     # (condition, alpha) is the grouping key. Rows from before the sweep carry no `alpha`;
     # they are the banked alpha=1.0 run, so default accordingly rather than dropping them.
+    #
+    # The condition NAME is deliberately shared between single-layer and multi-layer steering
+    # (both are "V3_taskvec"), so the intervention must be part of the key too. Without it,
+    # multi-layer V3 at alpha=1.0 pools with single-layer V3 at alpha=1.0 in the same results
+    # file and the mean lands between two different experiments. Banked rows carry no
+    # `multilayer` field and default to False, so their grouping is unchanged.
     by: dict[tuple[str, float], list[dict]] = defaultdict(list)
+    multilayer_seen = False
     for r in ok:
-        by[(r["condition"], float(r.get("alpha", 1.0)))].append(r)
+        ml = bool(r.get("multilayer", False))
+        multilayer_seen |= ml
+        name = f"{r['condition']}@ML" if ml else r["condition"]
+        by[(name, float(r.get("alpha", 1.0)))].append(r)
+    if multilayer_seen:
+        print("[stats] multilayer rows present — reported under '<condition>@ML'. The V1-vs-V3 "
+              "gate below is defined for the single-layer battery only; the single-vs-multi "
+              "comparison is kv_bypass_stats.py.", flush=True)
     alphas = sorted({a for _, a in by})
 
     rep: dict[str, Any] = {

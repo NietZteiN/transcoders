@@ -51,7 +51,7 @@ sys.path.insert(0, str(_HERE))
 from steer_run import HOSTS, DEFAULT_HOST, LAYER_INDEX, TARGET_MODEL, build_user, load_pairs  # noqa: E402
 from layer_rotation import all_layer_acts  # noqa: E402
 from steer import ActivationSteerer, SteerSpec  # noqa: E402
-from steer_multilayer import MultiLayerSpec, MultiLayerSteerer  # noqa: E402
+from steer_multilayer import MultiLayerSpec, MultiLayerSteerer, model_dims  # noqa: E402
 
 SEED = 20260724
 SINGLE_ALPHAS = [0.25, 0.5, 1.0, 2.0, 4.0]           # the banked B4 grid
@@ -109,7 +109,10 @@ def main() -> int:
     import random
     pairs = load_pairs(args.limit or None, random.Random(SEED))
     L = args.target_layer
-    print(f"[mlv] {len(pairs)} pairs · target layer {L} · {model.config.num_hidden_layers} layers",
+    d_model, n_layers = model_dims(model)
+    if not 0 <= L < n_layers:
+        raise SystemExit(f"--target-layer {L} outside this host's {n_layers} layers")
+    print(f"[mlv] {len(pairs)} pairs · target layer {L} · {n_layers} layers · d_model {d_model}",
           flush=True)
 
     # ── 1. per-layer contrastive differences, one forward pass per condition per item ──

@@ -47,7 +47,7 @@ def main() -> int:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from steer import ActivationSteerer, SteerSpec
     from steer_run import HOSTS, DEFAULT_HOST
-    from steer_multilayer import MultiLayerSpec, MultiLayerSteerer
+    from steer_multilayer import MultiLayerSpec, MultiLayerSteerer, model_dims
 
     host = args.host or DEFAULT_HOST
     hf_id, host_layer = HOSTS[host]
@@ -62,8 +62,7 @@ def main() -> int:
                                   add_generation_prompt=True, return_dict=False)
     x = torch.tensor([ids], device=model.device)
     L = args.target_layer
-    cfg = model.config
-    d_model = getattr(cfg, "hidden_size", None) or cfg.text_config.hidden_size
+    d_model, _n_layers = model_dims(model)
     g = torch.Generator().manual_seed(SEED)
     deltas = {l: torch.randn(d_model, generator=g) for l in range(L + 1)}
 

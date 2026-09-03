@@ -112,8 +112,10 @@ def main() -> int:
     model = AutoModelForCausalLM.from_pretrained(
         TARGET_MODEL, torch_dtype=torch.bfloat16, device_map=args.device).eval()
 
-    n_layers = model.config.num_hidden_layers
-    d_model = model.config.hidden_size
+    # Same latent Gemma-3 bug as multilayer_vectors had: Gemma3Config carries neither field at
+    # the top level. Harmless on Qwen/Llama, fatal on a Gemma host.
+    from steer_multilayer import model_dims
+    d_model, n_layers = model_dims(model)
     P = len(POSITIONS)
     acts = np.zeros((len(pairs), P, n_layers, d_model), dtype=np.float32)
     valid = np.zeros((len(pairs), P), dtype=bool)

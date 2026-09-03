@@ -59,6 +59,16 @@ echo; echo "=== MULTILAYER (V3, V4, R_random) at alpha in {$MA, 1.0} ==="
 python nla/src/steer_run.py --model "$HOST" --multilayer --only-conditions V3_taskvec,V4_oracle,R_random \
   --alphas "$MA,1.0" --out-dir "$OUT" --deterministic --save-replies --max-hours 4 || exit 1
 
+# The pre-registered rules are executed arithmetically, never typed by hand: kv_bypass_stats.py
+# is their only executor, so the verdict cannot drift from the pre-registration text. Its exit
+# code is non-zero only when an ARM IS MISSING (verdict INCOMPLETE) — a real null must not look
+# like a crash, and a missing denominator must not look like a null.
+echo; echo "=== VERDICT (frozen rules, executed) ==="
+python nla/src/kv_bypass_stats.py --host "$HOST" \
+  --results "$OUT/steer_results.jsonl" --baseline "$OUT/baseline.jsonl" \
+  --energy-match "$PROJ/data/nla/p0/steerv2/$HOST/energy_match.json" \
+  --out "$PROJ/data/nla/p0/steerv2/$HOST/kv_bypass_stats.json"
+
 echo; echo "=== rows by arm ==="
 python - "$OUT/steer_results.jsonl" <<'EOF'
 import json, sys, collections

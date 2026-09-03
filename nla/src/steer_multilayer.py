@@ -39,6 +39,21 @@ import torch
 from steer import ActivationSteerer  # reuse _layers() resolution so the two never drift
 
 
+def model_dims(model: Any) -> tuple[int, int]:
+    """(d_model, n_layers) for a plain causal LM or a multimodal wrapper.
+
+    Gemma-3 loads as `Gemma3ForConditionalGeneration`, whose `Gemma3Config` carries neither
+    `hidden_size` nor `num_hidden_layers` at the top level — both live under `text_config`.
+    Reading them directly raises AttributeError, which is the good case; the bad case is code
+    that falls back to a default and reports the wrong depth. `extract.ActivationExtractor`
+    already resolves this the same way; this is the same rule for callers that hold a bare model.
+    """
+    cfg = model.config
+    d = getattr(cfg, "hidden_size", None) or cfg.text_config.hidden_size
+    n = getattr(cfg, "num_hidden_layers", None) or cfg.text_config.num_hidden_layers
+    return int(d), int(n)
+
+
 @dataclass
 class MultiLayerSpec:
     """Per-layer directions, one coefficient, one position rule.

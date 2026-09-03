@@ -101,7 +101,9 @@ def main() -> int:
     if args.gate_only:
         return 0
 
-    n_layers = model.config.num_hidden_layers
+    # Gemma-3's config keeps these under text_config; see steer_multilayer.model_dims.
+    from steer_multilayer import model_dims
+    _d_model, n_layers = model_dims(model)
     deltas, norms = [], []
     for i, p in enumerate(pairs):
         c = all_layer_acts(model, tokz, build_user(p["code_l0"], p["call_l0"]))
