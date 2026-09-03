@@ -3,10 +3,16 @@
 THE DEFECT THIS ADDRESSES. `steer.ActivationSteerer` hooks one block. A write at layers[20],
 position p, propagates only to layers 21-27 *for that position*. The K/V entries at layers 0-20
 for p were computed before the hook fired and are left unedited — so every later token still
-attends to the UN-EDITED decoy through the bottom 21 layers. The intervention never changes what
-the model subsequently reads; it changes only what one position contributes upward, in 7 of 28
-layers. That is a sufficient mechanical explanation for B4's null which is independent of whether
-an item-level belief exists, and it has never been tested.
+attends to the UN-EDITED decoy through the bottom 21 layers. That is a sufficient mechanical
+explanation for B4's null which is independent of whether an item-level belief exists, and it has
+never been tested.
+
+BE PRECISE ABOUT HOW PARTIAL THIS IS (corrected 2026-09-03, see
+log/nla-harness/2026-09-03_kv-bypass-claim-precision.md). The write DOES reach later tokens through
+layers 21-27: those are downstream of the hook and are cached in corrected form. The bypass covers
+21 of 28 layers -- 75% of the depth, not all of it. Do NOT write "the intervention never changes
+what the model reads"; it is false, it contradicts the sentence before it, and a reviewer who
+notices the top-7-layer path is entitled to discount the whole argument on the strength of it.
 
 Writing at layers 0..L during prefill means the K/V cached at every one of those layers for p is
 the corrected state. Later tokens then read the correction.
