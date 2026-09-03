@@ -137,10 +137,20 @@ def main() -> int:
         "primary_alpha": args.primary_alpha,
         "conditions": {},
     }
+    # 2026-09-03 (flippable-denominator entry): a rescue can only flip items the model gets
+    # right on clean code and wrong on the trap. Items wrong at BOTH tiers are not a steering
+    # target, yet `recovered_wrong_to_right` counts them. The flippable set bounds every
+    # rescue claim: its size over n is the CEILING on delta_acc, and if that ceiling is below
+    # twice the reproducibility floor (0.075) the experiment cannot detect a full rescue.
+    flippable = {s for s, b in base.items() if b["l0_correct"] and not b["l1b_correct"]}
+    rep["flippable_n"] = len(flippable)
+    rep["rescue_ceiling"] = round(len(flippable) / max(len(base), 1), 4)
+    rep["power_gate_passed"] = rep["rescue_ceiling"] >= 2 * 0.075
 
     per_item: dict[tuple[str, float], dict[str, int]] = {}
     for (cond, alpha), rs in sorted(by.items()):
         deltas, recovered, damaged, b_only, c_only = [], 0, 0, 0, 0
+        rescued_flip = 0
         flags: dict[str, int] = {}
         for r in rs:
             sid = r["snippet_id"]
@@ -153,6 +163,8 @@ def main() -> int:
             if not was and now:
                 recovered += 1
                 b_only += 1
+                if sid in flippable:
+                    rescued_flip += 1
             if was and not now:
                 damaged += 1
                 c_only += 1
@@ -164,6 +176,8 @@ def main() -> int:
             "delta_acc": round(st.mean(deltas), 4) if deltas else None,
             "delta_ci95": boot_ci(deltas),
             "recovered_wrong_to_right": recovered,
+            "rescued_flippable": rescued_flip,
+            "rescued_flippable_of": len(flippable),
             "damaged_right_to_wrong": damaged,
             "mcnemar_vs_baseline_p": round(mcnemar_exact(b_only, c_only), 5),
             "parse_rate": round(st.mean(bool(r.get("parsed")) for r in rs), 4),
