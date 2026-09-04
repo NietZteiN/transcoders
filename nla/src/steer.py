@@ -208,6 +208,92 @@ class ActivationSteerer:
         self.close()
 
 
+class PositionReplacer:
+    """`h[p] <- ||h[p]|| * unit(v_p)` at chosen absolute positions, a DIFFERENT vector per position.
+
+    Experiment W needs this and `ActivationSteerer` cannot express it: a `SteerSpec` carries one
+    delta for all of its positions, whereas the NLA write-back gives every identifier span its own
+    reconstructed target. (A `mode="replace"` flag on `SteerSpec` was written and tested first,
+    then dropped -- it only covers the single-vector case, so keeping it would have left two
+    replacement mechanisms in this module for one job.)
+
+    Why replace rather than add, and why the norm is kept: the AR emits a whole state at one
+    position, not a delta, so replacement is its native operation; and it is trained on
+    `MSE = 2(1-cos)`, so its output norm carries no information and the LOCAL norm is the only
+    defensible magnitude. That is also what removes alpha from Experiment W's design -- there is
+    no coefficient to sweep, which is the point.
+
+    Position arithmetic follows `ActivationSteerer` exactly: absolute indices over the whole
+    sequence, tracked across the prefill call and each single-token decode call.
+    """
+
+    def __init__(self, model: Any, layer_index: int):
+        self.model = model
+        self.layer_index = layer_index
+        self._targets: dict[int, torch.Tensor] = {}
+        self._cursor = 0
+        self.n_positions_written = 0
+        layers = self._layers()
+        assert 0 <= layer_index < len(layers), f"layer {layer_index} out of range"
+        self._handle = layers[layer_index].register_forward_hook(self._hook)
+
+    def _layers(self) -> Any:
+        m = self.model
+        for path in (("model", "layers"), ("model", "model", "layers"),
+                     ("transformer", "h"), ("model", "language_model", "layers")):
+            o = m
+            try:
+                for a in path:
+                    o = getattr(o, a)
+                return o
+            except AttributeError:
+                continue
+        raise AttributeError("could not locate decoder layers")
+
+    def _hook(self, _module: Any, _inputs: Any, output: Any) -> Any:
+        hidden = output[0] if isinstance(output, tuple) else output
+        if not isinstance(hidden, torch.Tensor) or hidden.dim() != 3:
+            return output
+        start = self._cursor
+        seq_len = hidden.shape[1]
+        self._cursor += seq_len
+        local = [(p - start, p) for p in self._targets if start <= p < start + seq_len]
+        if not local:
+            return output                       # empty targets => exact no-op, the identity test
+        idx = torch.tensor([l for l, _ in local], device=hidden.device)
+        h = hidden.index_select(1, idx)                                   # [b, k, d]
+        # fp32 for the norm and the unit-normalisation, as in ActivationSteerer: a bf16 sum of
+        # squares over 3840 dims loses enough precision to change the written magnitude.
+        V = torch.stack([self._targets[p].to(torch.float32) for _, p in local])   # [k, d]
+        V = V / V.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+        norms = h.to(torch.float32).norm(dim=-1, keepdim=True)            # [b, k, 1]
+        new = (norms * V.to(hidden.device)[None]).to(hidden.dtype)
+        hidden = hidden.index_copy(1, idx, new)
+        self.n_positions_written += len(local)
+        if isinstance(output, tuple):
+            return (hidden,) + tuple(output[1:])
+        return hidden
+
+    def set_targets(self, targets: dict[int, torch.Tensor] | None) -> None:
+        self._targets = dict(targets or {})
+        self.reset()
+
+    def reset(self) -> None:
+        self._cursor = 0
+        self.n_positions_written = 0
+
+    def close(self) -> None:
+        if self._handle is not None:
+            self._handle.remove()
+            self._handle = None
+
+    def __enter__(self) -> "PositionReplacer":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()
+
+
 @torch.no_grad()
 def generate_steered(model: Any, tokenizer: Any, input_ids: torch.Tensor,
                      steerer: ActivationSteerer, spec: SteerSpec | None,
