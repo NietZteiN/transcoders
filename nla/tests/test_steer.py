@@ -24,7 +24,7 @@ import torch
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "src"))
 
-from steer import ActivationSteerer, SteerSpec, generate_steered  # noqa: E402
+from steer import ActivationSteerer, PositionReplacer, SteerSpec, generate_steered  # noqa: E402
 
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 LAYER = 8               # mid-stack of the 0.5B (24 layers); stands in for L20 of the 7B
@@ -249,3 +249,91 @@ def test_direction_normalized_in_fp32_not_activation_dtype():
         assert abs(step - want) / want < 0.02, f"edit magnitude {step:.3f} vs alpha*||h||={want:.3f}"
     finally:
         st.close()
+
+
+# ── PositionReplacer ────────────────────────────────────────────────────────────────────────
+# Deliberately fixture-free: a toy module rather than the 0.5B, so these run even when the test
+# LM is not in the offline cache (it currently is not on juno). What is under test is position
+# arithmetic and the written value, neither of which needs a real transformer.
+
+class _Identity(torch.nn.Module):
+    def forward(self, x):                      # noqa: D102
+        return x
+
+
+class _ToyLM(torch.nn.Module):
+    """Minimal `model.layers` shape so PositionReplacer._layers() resolves."""
+
+    def __init__(self):
+        super().__init__()
+        self.model = torch.nn.Module()
+        self.model.layers = torch.nn.ModuleList([_Identity()])
+
+    def forward(self, x):                      # noqa: D102
+        return self.model.layers[0](x)
+
+
+@pytest.fixture()
+def toy():
+    torch.manual_seed(SEED)
+    return _ToyLM(), torch.randn(1, 6, 8)
+
+
+def test_replacer_empty_targets_is_exact_noop(toy):
+    """The identity test: no targets must leave the tensor byte-identical, not merely close."""
+    m, h = toy
+    r = PositionReplacer(m, 0)
+    r.set_targets(None)
+    assert torch.equal(m(h.clone()), h)
+    r.close()
+
+
+def test_replacer_writes_norm_matched_value_per_position(toy):
+    """Each position gets ITS OWN direction at ITS OWN norm — the property SteerSpec cannot express.
+
+    Asserts the value, not that a hook fired: the AR's output norm is meaningless (trained on
+    MSE = 2(1-cos)), so writing it unnormalised would be a silent magnitude error.
+    """
+    m, h = toy
+    v2, v4 = torch.randn(8), torch.randn(8)
+    r = PositionReplacer(m, 0)
+    r.set_targets({2: v2, 4: v4})
+    out = m(h.clone())
+
+    for p, v in ((2, v2), (4, v4)):
+        assert torch.allclose(out[0, p], h[0, p].norm() * v / v.norm(), atol=1e-6)
+    assert torch.allclose(out[0, [2, 4]].norm(dim=-1), h[0, [2, 4]].norm(dim=-1), atol=1e-5)
+    # The two positions must not collapse to one shared direction.
+    u2, u4 = out[0, 2] / out[0, 2].norm(), out[0, 4] / out[0, 4].norm()
+    assert not torch.allclose(u2, u4, atol=1e-3)
+    assert torch.equal(out[0, [0, 1, 3, 5]], h[0, [0, 1, 3, 5]])
+    assert r.n_positions_written == 2
+    r.close()
+
+
+def test_replacer_tracks_positions_across_the_decode_boundary(toy):
+    """Position 7 exists only after prefill(6) + one decode step — the cache-boundary bug class."""
+    m, h = toy
+    r = PositionReplacer(m, 0)
+    r.set_targets({7: torch.randn(8)})
+    m(h.clone())                                   # prefill, positions 0..5 — nothing written
+    assert r.n_positions_written == 0
+    m(torch.randn(1, 1, 8))                        # position 6
+    assert r.n_positions_written == 0
+    m(torch.randn(1, 1, 8))                        # position 7 — the target
+    assert r.n_positions_written == 1
+    r.close()
+
+
+def test_no_grad_decorator_still_belongs_to_generate_steered():
+    """Regression: PositionReplacer was first inserted BETWEEN @torch.no_grad() and the function
+    it decorates, silently transferring the decorator to the class and leaving generate_steered
+    running with gradients enabled — in code paths banked experiments call. A FutureWarning was
+    the only symptom.
+    """
+    import inspect
+    import steer as _steer
+    src = inspect.getsource(_steer)
+    i, j = src.index("class PositionReplacer"), src.index("def generate_steered")
+    assert "@torch.no_grad()" in src[j - 40:j], "generate_steered lost its no_grad decorator"
+    assert "@torch.no_grad()" not in src[i - 40:i], "decorator re-attached to the class"
