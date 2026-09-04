@@ -231,6 +231,13 @@ def main() -> int:
     from nla_inference import NLACritic  # noqa: E402
     from local_av import LocalAV  # noqa: E402
 
+    # The AR load prints `model.norm.weight | MISSING ... newly initialized`, which looks alarming
+    # and is not. The checkpoint is a truncated K+1 backbone (33 layers, 0..32, 430 tensors) and
+    # genuinely omits the final norm; transformers initialises Gemma3RMSNorm's weight to ZEROS and
+    # its forward is `out * (1.0 + weight)`, i.e. exactly unit scale. So the value is deterministic
+    # and the same across runs -- checked 2026-09-04 rather than assumed, because a randomly
+    # initialised tensor here would make every AR call irreproducible and silently invalidate
+    # stage 0's cosines.
     ex = ActivationExtractor(model_name, layer, device=args.device)
     model, tokz = ex.model, ex.tokenizer
     av = LocalAV(AV_CHECKPOINTS[args.model], device=args.device)
@@ -402,7 +409,7 @@ def main() -> int:
                                       if "C1_roundtrip" in dh else None)
         rows.append(row)
         sink.write(json.dumps(row) + "\n"); sink.flush()
-        print(f"[W1] {pi+1}/{len(pairs)} {sid} spans={row['n_spans']} edit={n_edit} "
+        print(f"[W1] {pi+1}/{len(pairs)} {sid} pos={row['n_positions']} edit={n_edit} "
               f"dG_W1={row['dG_W1_edit']:+.2f} dG_C1={row['dG_C1_roundtrip']:+.2f}", flush=True)
 
     sink.close()
