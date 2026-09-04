@@ -75,7 +75,12 @@ AV_CHECKPOINTS = {
     "gemma12b": _hf_snapshot("kitft/nla-gemma3-12b-L32-av"),
 }
 
-MAX_NEW_READ = 96          # matches capture_core.MAX_NEW_READ
+# 180 = overnight_capture.MAX_NEW_READ, the value every AV read in this project has used.
+# The first smoke ran at 96 on a comment claiming it matched that constant; it does not, and the
+# consequence was visible rather than silent only because n_no_tags counted it: 22 of 22 reads
+# were cut off before their closing </explanation>, mid-sentence. Truncated reads bias the round
+# trip downward and undercount H-W3 mentions, and in stage 1 they would be the text being edited.
+MAX_NEW_READ = 180
 N_CROSS = 5                # cross-item mismatched draws per span
 N_BOOT = 10_000            # prereg
 CJK_ABORT_RATE = 0.5       # >50% of a 100-read window mostly-CJK => injection failure, abort
@@ -263,6 +268,42 @@ def main() -> int:
     w0b = bool(np.isfinite(w_lo) and m_lo > w_hi)
     verdict = "NLA-LIVE" if (w0a and w0b) else ("NLA-COARSE" if w0a else "NLA-VOID")
 
+    # ── anisotropy diagnostic (secondary; rule frozen 2026-09-04 before the full data) ──
+    # Each set is centred by ITS OWN mean rather than by a shared one: the AR's outputs may carry
+    # a systematic offset from the activation cloud, and centring both by the activations' mean
+    # would leave that offset inside R and let it dominate every cosine. Centring each by its own
+    # mean asks the question that matters -- does the round trip track item-to-item VARIATION --
+    # rather than whether two clouds happen to sit in the same place.
+    Hc, Rc = H - H.mean(0, keepdims=True), R - R.mean(0, keepdims=True)
+    matched_c, within_c, cross_c = {}, {}, {}
+    rng_c = np.random.default_rng(SEED)
+    for i in range(len(rows)):
+        s_ = sids[i]
+        matched_c.setdefault(s_, []).append(cosv(Rc[i], Hc[i]))
+        for j in [k for k in range(len(rows)) if sids[k] == s_ and k != i]:
+            within_c.setdefault(s_, []).append(cosv(Rc[i], Hc[j]))
+        other = [k for k in range(len(rows)) if sids[k] != s_]
+        if other:
+            for j in rng_c.choice(other, size=min(N_CROSS, len(other)), replace=False):
+                cross_c.setdefault(s_, []).append(cosv(Rc[i], Hc[int(j)]))
+    mc = cluster_boot(pack(matched_c), np.random.default_rng(SEED))
+    wc = cluster_boot(pack(within_c), np.random.default_rng(SEED + 1)) if pack(within_c) \
+        else (float("nan"),) * 3
+    cc = cluster_boot(pack(cross_c), np.random.default_rng(SEED + 2)) if pack(cross_c) \
+        else (float("nan"),) * 3
+    centred = {
+        "matched":     {"mean": mc[0], "ci95": [mc[1], mc[2]]},
+        "within_item": {"mean": wc[0], "ci95": [wc[1], wc[2]]},
+        "cross_item":  {"mean": cc[0], "ci95": [cc[1], cc[2]]},
+        "W0a_separation_centred": bool(np.isfinite(cc[1]) and mc[1] > cc[2]),
+        "W0b_separation_centred": bool(np.isfinite(wc[1]) and mc[1] > wc[2]),
+    }
+    # Reported, never used to override the frozen primary. If the two disagree the entry says so
+    # and the family is treated as UNRESOLVED pending a properly pre-registered rule -- the
+    # discipline that caught R's ratio denominator and G's normalisation.
+    centred["agrees_with_primary"] = (centred["W0a_separation_centred"] == w0a
+                                      and centred["W0b_separation_centred"] == w0b)
+
     n_items = len(set(sids))
     dec = np.array([r["mentions_decoy"] for r in rows], dtype=float)
     tru = np.array([r["mentions_true"] for r in rows], dtype=float)
@@ -284,6 +325,12 @@ def main() -> int:
             "within_item":    {"mean": w_obs, "ci95": [w_lo, w_hi]},
             "cross_item":     {"mean": c_obs, "ci95": [c_lo, c_hi]},
         },
+        # ANISOTROPY DIAGNOSTIC, secondary, rule frozen in the 2026-09-04 entry before these
+        # numbers existed. Residual streams share a large common direction, so ANY two
+        # activations sit near cos 0.97 and raw cosine is a weak discriminator: the frozen
+        # primary gate can fire on a round trip that carries almost no item information. The
+        # mean-centred version removes the shared component and is the honest effect size.
+        "cos_centred": centred,
         "H_W0a_cross_item_separation": w0a,
         "H_W0b_within_item_separation": w0b,
         "H_W3_mention_rate": {
@@ -295,9 +342,12 @@ def main() -> int:
         "elapsed_h": (time.time() - t0) / 3600,
     }
     json.dump(stats, open(out_dir / "cycle_stats.json", "w"), indent=2)
-    # Vectors are dropped from the persisted rows: 3840 floats x n_spans is large and every
-    # downstream question is answered by the cosines. Reads are kept - they are the H-W3
-    # evidence and stage 1's edit targets.
+    # Vectors ARE persisted, in a companion .npz. An earlier version dropped them on the claim
+    # that "every downstream question is answered by the cosines" - false: the anisotropy
+    # re-analysis (mean-centred cosine) needs the raw vectors, and without them it would cost a
+    # second GPU run. ~400 spans x 3840 x 2 arrays x fp32 is ~12 MB.
+    np.savez_compressed(out_dir / "cycle_vectors.npz", h=H, rec=R,
+                        snippet_id=np.array(sids), span_i=np.array([r["span_i"] for r in rows]))
     with open(out_dir / "cycle_rows.jsonl", "w") as f:
         for r in rows:
             f.write(json.dumps({k: v for k, v in r.items() if k not in ("h", "rec")}) + "\n")
