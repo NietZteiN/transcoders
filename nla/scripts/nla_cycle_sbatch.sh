@@ -10,61 +10,38 @@
 # Experiment W, stage 0 — the cycle-consistency gate.
 # Pre-registered: log/nla-harness/2026-09-03_nla-writeback-prereg.md
 #
-# THREE 12B models share one card: the subject (gemma-3-12b-it, ~24 GB bf16), the AV served by
-# sglang, and the AR. h200 (141 GB) is requested for that reason and mem-fraction-static is held
-# to 0.30 (~42 GB) so the two HF models have room. On an 80 GB card this does not fit and the AR
-# must go to CPU (--ar-device cpu), which is slower but correct.
+# No sglang. Job 376102 died in 40 s because sglang is installed in none of the three juno envs
+# (it did not survive the cluster migration). The AV now runs in-process via nla/src/local_av.py,
+# which reuses the vendored NLAClient._build_embeds injection path verbatim and only replaces the
+# HTTP POST with model.generate(inputs_embeds=...). See that module for why (b) beat installing it.
+#
+# THREE 12B models on one card, all in this process: subject (gemma-3-12b-it), AV, AR — roughly
+# 24 GB each in bf16, ~72 GB. h200 (141 GB) holds them with room to spare; on an 80 GB card the
+# AR would have to go to CPU (--ar-device cpu).
 set -uo pipefail
 source /work/jvl210002/migration/transcoders/nla/scripts/juno_env.sh
 load_conda; activate_env "$NLA_ENV"; cd "$PROJ"
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TOKENIZERS_PARALLELISM=false PYTHONHASHSEED=0
 
 HOST=gemma12b
-PORT="${NLA_PORT:-30021}"
 OUT="$PROJ/data/nla/p0/nla_cycle/$HOST"; mkdir -p "$OUT"
-AV="$(python - <<'EOF'
-import sys; sys.path.insert(0, "nla/src"); sys.path.insert(0, "nla/vendor/nla-repo")
-from nla_cycle import AV_CHECKPOINTS; print(AV_CHECKPOINTS["gemma12b"])
-EOF
-)"
 
 echo "# Experiment W stage 0 — cycle-consistency gate · job $SLURM_JOB_ID on $SLURMD_NODENAME · $(date -u +%FT%TZ)"
-echo "# AV checkpoint: $AV"
-sha256sum nla/src/nla_cycle.py nla/src/span_positions.py nla/src/extract.py
+sha256sum nla/src/nla_cycle.py nla/src/local_av.py nla/src/span_positions.py nla/src/extract.py
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader || true
 # --deterministic stays OFF (2026-08-29: it changes answers and forks the corpus).
 
 # FIRST USE OF THE GEMMA AV ANYWHERE IN THIS PROJECT. All 16 other AV call sites hardcode the
-# Qwen checkpoint. injection_scale is 80000 here vs Qwen's 150; if that is mishandled the
-# verbalizer emits CJK free-association instead of failing, which the script aborts on (exit 3).
-setsid python -m sglang.launch_server \
-  --model-path "$AV" --port "$PORT" \
-  --disable-radix-cache --mem-fraction-static 0.30 \
-  > "$OUT/av_server.log" 2>&1 &
-SERVER_PID=$!
-cleanup() {
-  kill -- -"$SERVER_PID" 2>/dev/null || true
-  sleep 2
-  # bracketed so the pattern cannot match this script's own command line
-  pkill -9 -f "[s]glang.launch_server.*--port $PORT" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
+# Qwen checkpoint; injection_scale is 80000 here vs Qwen's 150. If that is mishandled the
+# verbalizer free-associates in CJK instead of failing, which the script aborts on (exit 3) —
+# a broken instrument, recorded as such, never as a null.
 
-for i in $(seq 1 120); do
-  curl -s "http://localhost:$PORT/health" >/dev/null 2>&1 && { echo "# AV up after ~$((i*5))s"; break; }
-  kill -0 "$SERVER_PID" 2>/dev/null || { echo "# AV SERVER DIED — see $OUT/av_server.log"; tail -30 "$OUT/av_server.log"; exit 1; }
-  sleep 5
-done
-
-# Smoke first (project rule): 3 items, with in-script assertions on CJK rate and matched cos.
-# A broken injection or a dead round trip stops the run here rather than after 60 items.
+# Smoke first (project rule): 3 items, in-script assertions on CJK rate and matched cos.
 echo; echo "=== SMOKE (3 items) ==="
-python nla/src/nla_cycle.py --model "$HOST" --smoke \
-  --out-dir "$OUT/smoke" --sglang-url "http://localhost:$PORT" || exit 1
+python nla/src/nla_cycle.py --model "$HOST" --smoke --out-dir "$OUT/smoke" || exit 1
 
 echo; echo "=== FULL (60 items) ==="
-python nla/src/nla_cycle.py --model "$HOST" \
-  --out-dir "$OUT" --sglang-url "http://localhost:$PORT" --max-hours 4 || exit 1
+python nla/src/nla_cycle.py --model "$HOST" --out-dir "$OUT" --max-hours 4 || exit 1
 
 echo; echo "=== GATE ==="
 python - <<'EOF'

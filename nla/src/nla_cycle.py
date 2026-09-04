@@ -122,7 +122,12 @@ def main() -> int:
     ap.add_argument("--allow-banked-host", action="store_true",
                     help="required for qwen7b (2026-09-02 model constraint: no Chinese models)")
     ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--sglang-url", default="http://localhost:30000")
+    ap.add_argument("--av-backend", default="local", choices=("local", "sglang"),
+                    help="'local' runs the AV in-process via transformers (nla/src/local_av.py). "
+                         "sglang is not installed on juno and buys nothing for sequential "
+                         "single-vector reads on a card the subject already occupies.")
+    ap.add_argument("--sglang-url", default="http://localhost:30000",
+                    help="only used with --av-backend sglang")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--ar-device", default=None,
                     help="device for the AR; defaults to --device. Set 'cpu' when the subject, "
@@ -152,10 +157,12 @@ def main() -> int:
     t0 = time.time()
 
     from nla_inference import NLAClient, NLACritic  # noqa: E402
+    from local_av import LocalAV  # noqa: E402
 
     print(f"[W0] host={args.model} {model_name} L{layer}  av={av_dir}  ar={ar_dir}", flush=True)
     ex = ActivationExtractor(model_name, layer, device=args.device)
-    av = NLAClient(av_dir, sglang_url=args.sglang_url)
+    av = (LocalAV(av_dir, device=args.device) if args.av_backend == "local"
+          else NLAClient(av_dir, sglang_url=args.sglang_url))
     ar = NLACritic(ar_dir, device=args.ar_device or args.device)
     tokz = ex.tokenizer
 
@@ -267,7 +274,8 @@ def main() -> int:
     stats = {
         "experiment": "W0_cycle_consistency",
         "host": args.model, "model": model_name, "layer": layer,
-        "av": str(av_dir), "ar": str(ar_dir),
+        "av": str(av_dir), "ar": str(ar_dir), "av_backend": args.av_backend,
+        "av_reads_without_explanation_tags": getattr(av, "n_no_tags", None),
         "seed": SEED, "n_boot": N_BOOT,
         "n_items": n_items, "n_spans": len(rows), "skipped": skipped,
         "cjk_mean": float(np.mean([r["cjk_frac"] for r in rows])),
