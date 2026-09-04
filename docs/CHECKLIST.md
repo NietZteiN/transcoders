@@ -1,6 +1,6 @@
 # Transcoders — Hypotheses, Experiments & Task Checklist
 
-*Last updated: 2026-08-03*
+*Last updated: 2026-09-03*
 **Status:** Phase 0 in progress (scaffold built, smoke passing; no science runs yet) · **Instrument 3** (SAE + transcoder feature/circuit analysis)
 
 The living plan for the `transcoders/` sub-project. Master hypotheses ledger + experiment
@@ -80,6 +80,21 @@ Feasibility: ⚠️ mixed. Small supported models (Gemma-2-2B, Llama-3.2-1B, Qwe
 - **Confirm HT3:** a dispatcher-state circuit appears under L2 and degrades at L3, tracking the r=−0.196 gradient. **Refute:** graphs dominated by error nodes, or no systematic L2→L3 change.
 - **Risks:** error nodes carry causal weight (OOD regime); per-prompt & labor-intensive; matched-snippet graph comparison is **methodologically novel** (contribution, but risky).
 - **First concrete item:** `isBalanced` control-flow-flattened into a while-if state machine (`s = 0/1/2`).
+- **⚠️ PREREQUISITE, measured 2026-09-03 — stimuli must be token-length matched by construction.**
+  Token-level activation patching between obfuscation tiers requires a 1:1 token map between the
+  matched variants. On the banked L0/L1b corpus **0 of 60 pairs admit one**: only 27.5 % of 1,289
+  `replace` blocks are length-matched, 88.9 % of replace tokens sit in mismatched blocks, a median
+  **19.4 %** of each obfuscated prompt is unpatchable, and the obfuscated variant runs a median
+  **+27** tokens longer (range −1 … +149). Root cause is stimulus-level: only 60 of 328 rename pairs
+  are token-length matched, and 180 of 328 originals are single tokens replaced by multi-token
+  descriptive decoys. **A patching-based E3 on L1b needs a tier generated under a length-matching
+  constraint; an existing corpus cannot be retrofitted.** L2/L3 (flattening) has not been measured
+  for this and must be checked the same way before any patching run.
+  See [`../log/nla-harness/2026-09-03_patch-alignment-impossible.md`](../log/nla-harness/2026-09-03_patch-alignment-impossible.md).
+  *(The related worry that the +27-token inflation confounds the L1b effect itself was tested and
+  is **not** supported — ρ_partial = −0.159 [−0.420, +0.123]; see
+  [`../log/nla-harness/2026-09-03_length-confound-results.md`](../log/nla-harness/2026-09-03_length-confound-results.md).
+  The prerequisite above is about the patching **method**, not about the stimuli being invalid.)*
 
 ### E4 — Dispatcher state-binding probe across hops · T2 · tests HT4
 Feasibility: ✅ cheap, **needs no pretrained dictionary** → runs on *any* panel model (incl. coder / reasoning-Qwen). ~2 wk.
@@ -309,3 +324,4 @@ Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUD
 - **2026-08-07b** — Confirmatory family closed: HT13 not adjudicated (instrument null), HT14 refuted; BH-FDR recorded as vacuous. Verdict summary added.
 - **2026-08-07** — Instrument-2 sidebar expanded: banked corpus, N4/N5 instruments and the HT12–HT14 pre-registration recorded; **HT12 refuted** and the 2026-08-06 faithfulness↔correctness gap reclassified as a reply-length artifact. HT9–HT11 remain parked.
 - **2026-07-24** — Created. Formalized HT1–HT8 from the E1–E8 confirm/falsify conditions in `experiment_menu.md`; added the external attention H1–H4 that E7 triangulates; laid out the phased task list (Phase 0 infra → Phase 1 committed E1/E2/E3-PoC/E7+E4 → Phase 2 stretch → Phase 3 synthesis) and the discipline gate.
+- **2026-09-03** — E3: recorded the **token-length-matching prerequisite** for any patching-based attribution work, measured on the banked L0/L1b corpus (0/60 pairs admit a 1:1 token map; median +27-token inflation). Noted that the separate question — whether that inflation confounds the L1b effect — was tested and refuted (ρ_partial = −0.159), so the prerequisite constrains the method, not the stimuli.
