@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nla_dose
-#SBATCH --partition=h200
+#SBATCH --partition=h200,h100
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=200G
@@ -16,6 +16,11 @@
 # veto from job 378019, and the intermediate k are descriptive. Cost: 8 scoring passes per item. x 60 items at 1100 new tokens.
 # MAX_NEW_GEN stays at 1100 to match every banked run -- a smaller budget silently zeroes the
 # control (2026-08-30: 12% of items were being scored wrong for not finishing).
+# h100 is eligible as well as h200: this job loads ONLY the subject model (~24 GB bf16), no AV and
+# no AR, so an 80 GB card is ample. Measured 2026-09-06: queue wait on this cluster has a median of
+# 110 min against a median 8 min runtime (3x more time waiting than computing), and widening the
+# eligible partitions is the cheapest thing that touches that. The three-model jobs (nla_cycle,
+# nla_writeback, nla_fidelity) need ~72 GB and must stay on h200.
 set -uo pipefail
 source /work/jvl210002/migration/transcoders/nla/scripts/juno_env.sh
 load_conda; activate_env "$NLA_ENV"; cd "$PROJ"
