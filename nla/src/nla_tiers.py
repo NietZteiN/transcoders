@@ -133,7 +133,8 @@ def tier_rows() -> dict:
     return out
 
 
-def tier_anchor(tier_row: dict, true_term: str, tier: str) -> str | None:
+def tier_anchor(tier_row: dict, true_term: str, tier: str,
+                strict: bool = False) -> str | None:
     """The term that stands for `true_term` in this tier's code, or None.
 
     L2 keeps identifiers, so the true term appears verbatim. L1 renames to nonsense, so it must be
@@ -144,6 +145,12 @@ def tier_anchor(tier_row: dict, true_term: str, tier: str) -> str | None:
     cand = m.get(true_term)
     if cand and term_spans(tier_row["code"], cand):
         return cand
+    if strict:
+        # H-W17: the fallback below lifts coverage by admitting spans that CANNOT express the
+        # nonsense-vs-truth contrast -- an unrenamed span's L1 anchor is the same identifier as its
+        # L0 anchor, so the two arms are identical there by construction and contribute an exact
+        # zero to the gap. That diluted H-W16b's pooled estimate with 29 items of structural nulls.
+        return None
     if term_spans(tier_row["code"], true_term):
         return true_term
     return None
@@ -160,6 +167,10 @@ def main() -> int:
     ap.add_argument("--traces", default=None)
     ap.add_argument("--no-generate", action="store_true")
     ap.add_argument("--score-only", action="store_true")
+    ap.add_argument("--strict-anchor", action="store_true",
+                    help="H-W17: require a rename_map entry, so only spans a tier genuinely "
+                         "RENAMED qualify. Drops coverage 190 -> 131 spans and 49 -> 20 items, "
+                         "and is the only way the L0-vs-L1 contrast means anything.")
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--max-hours", type=float, default=8.0)
     args = ap.parse_args()
@@ -257,7 +268,8 @@ def main() -> int:
             got = {}
             for t in ("L0", "L1", "L2"):
                 fa, row_t, ut = acts[t]
-                term = true if t == "L0" else tier_anchor(row_t, true, t)
+                term = (true if t == "L0"
+                        else tier_anchor(row_t, true, t, strict=args.strict_anchor))
                 if term is None:
                     continue
                 occ = term_spans(row_t["code"], term)
