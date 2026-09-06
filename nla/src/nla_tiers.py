@@ -49,6 +49,7 @@ from steer import PositionReplacer  # noqa: E402
 from steer_run import HOSTS, AR_CHECKPOINTS, build_user, graded, load_pairs, SEED  # noqa: E402
 from nla_cycle import AV_CHECKPOINTS, MAX_NEW_READ  # noqa: E402
 from nla_writeback import MAX_NEW_GEN, SUPPORT_NATS, VETO_DROP, N_BOOT, term_spans  # noqa: E402
+from arm_guard import ArmNotWritten, arm_series, paired, record_positions  # noqa: E402
 
 ARMS = ("SELF", "T_L0_all", "T_L2_all", "T_L0_sub", "T_L1_sub",
         "P_1", "P_2", "P_4", "R_1", "R_2", "R_4")
@@ -59,17 +60,37 @@ SELF_TOL = 1.0
 
 def score(rows: list[dict], baseline: dict | None, out_p: Path) -> dict:
     rng = np.random.default_rng(SEED)
-    draws = rng.integers(0, len(rows), size=(N_BOOT, len(rows))) if rows else None
+    def _draws(n):
+        # Sized from the vector actually being resampled, not from len(rows): once the guard drops
+        # unwritten items the two differ, and a fixed-size index would resample out of range.
+        return rng.integers(0, n, size=(N_BOOT, n))
 
-    def col(a): return np.array([r[f"dG_{a}"] for r in rows], dtype=float)
+    guard_report = {}
+
+    def col(a):
+        """Values for `a` on items where it ACTUALLY WROTE. Bugs #8/#9: averaging the exact zeros
+        an unwritten arm produces turned a real +21.82 into a sub-threshold +8.91, and turned an
+        absent arm into a passing verdict."""
+        v, rep = arm_series(rows, a, allow_exact_zero=(a == "SELF"))
+        guard_report[a] = rep
+        return np.array(v, dtype=float)
+
+    def paircol(a, b):
+        d, rep = paired(rows, a, b, allow_exact_zero=False)
+        guard_report[f"{a}-{b}"] = rep
+        return np.array(d, dtype=float)
 
     def boot(v):
-        d = v[draws].mean(1)
+        d = v[_draws(len(v))].mean(1)
         return float(v.mean()), float(np.percentile(d, 2.5)), float(np.percentile(d, 97.5))
 
-    per_arm = {}
+    per_arm, absent = {}, []
     for a in ARMS:
-        v = col(a); m, lo, hi = boot(v)
+        try:
+            v = col(a)
+        except ArmNotWritten as e:
+            absent.append(str(e)); continue
+        m, lo, hi = boot(v)
         acc = [r.get(f"acc_{a}") for r in rows if r.get(f"acc_{a}") is not None]
         par = [r.get(f"parse_{a}") for r in rows if r.get(f"parse_{a}") is not None]
         e = {"dG_sum_mean": m, "ci95": [lo, hi], "n": len(v),
@@ -80,13 +101,18 @@ def score(rows: list[dict], baseline: dict | None, out_p: Path) -> dict:
                      if baseline and e["acc"] is not None else None)
         per_arm[a] = e
 
+    if absent:
+        stats = {"experiment": "W15_saturation_W16_tier_source", "verdict": "W16-ARM-ABSENT",
+                 "absent_arms": absent, "guard": guard_report, "n_items": len(rows)}
+        json.dump(stats, open(out_p, "w"), indent=2)
+        return stats
     self_m = per_arm["SELF"]["dG_sum_mean"]
     self_ok = bool(abs(self_m) <= SELF_TOL)
 
     contrasts = {}
     for name, a, b in (("H_W16a_structure", "T_L0_all", "T_L2_all"),
                        ("H_W16b_meaning", "T_L0_sub", "T_L1_sub")):
-        v = col(a) - col(b); m, lo, hi = boot(v)
+        v = paircol(a, b); m, lo, hi = boot(v)
         contrasts[name] = {"minuend": a, "subtrahend": b, "mean": m, "ci95": [lo, hi],
                            "clears": bool(m >= GAP_BAR and lo > 0.0),
                            "positive_on": int((v > 0).sum()), "n": len(v)}
@@ -94,7 +120,7 @@ def score(rows: list[dict], baseline: dict | None, out_p: Path) -> dict:
     # its CI to contain 0 -- a small mean with a CI excluding 0 is still a position effect.
     ladder = {}
     for k in ("1", "2", "4"):
-        v = col(f"R_{k}") - col(f"P_{k}"); m, lo, hi = boot(v)
+        v = paircol(f"R_{k}", f"P_{k}"); m, lo, hi = boot(v)
         ladder[k] = {"diff_mean": m, "ci95": [lo, hi],
                      "matches": bool(abs(m) < GAP_BAR and lo <= 0.0 <= hi)}
     quantity = bool(all(x["matches"] for x in ladder.values()))
@@ -117,7 +143,7 @@ def score(rows: list[dict], baseline: dict | None, out_p: Path) -> dict:
              "per_arm": per_arm, "contrasts": contrasts,
              "H_W15_ladder": ladder, "H_W15_quantity_not_position": quantity,
              "H_W16a_structure_matters": structure, "H_W16b_meaning_matters": meaning,
-             "baseline_behav": baseline, "verdict": verdict}
+             "baseline_behav": baseline, "guard": guard_report, "verdict": verdict}
     json.dump(stats, open(out_p, "w"), indent=2)
     return stats
 
@@ -327,6 +353,7 @@ def main() -> int:
         if not args.no_generate:
             got_, ok_ = graded(gen(pids), tr["truth"])
             row["acc_noop"], row["parse_noop"] = bool(ok_), got_ is not None
+        record_positions(row, targets)
         rows.append(row); sink.write(json.dumps(row) + "\n"); sink.flush()
         print(f"[W16] {pi+1}/{len(pairs)} {sid} SELF={row['dG_SELF']:+.3f} "
               f"L0={row['dG_T_L0_all']:+.1f} L2={row['dG_T_L2_all']:+.1f} | "
