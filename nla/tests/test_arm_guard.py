@@ -91,3 +91,27 @@ def test_self_arm_may_legitimately_score_exactly_zero():
 def test_paired_on_legacy_rows_drops_items_where_either_side_is_an_exact_zero():
     d, rep = paired(legacy(zero_from=20), "A", "B")
     assert rep["n_used"] == 20 and sum(d) / len(d) == pytest.approx(22.0)
+
+
+# ── static consistency: every arm the code WRITES must be an arm the scorer KNOWS ─────────────
+
+def test_every_target_arm_name_is_declared_in_some_arms_tuple():
+    """Job 380566 died with KeyError: 'P_1' -- `--no-ladder` removed the ladder from ARMS but left
+    the loop that populates `targets["P_1"]`. A source-level check costs nothing and catches the
+    whole class: an arm written but not declared, or declared but never written.
+    """
+    import ast
+    import re
+    src = (Path(__file__).resolve().parent.parent / "src" / "nla_tiers.py").read_text()
+    tree = ast.parse(src)
+    declared = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", "").startswith("ARMS") for t in node.targets):
+            for elt in getattr(node.value, "elts", []):
+                if isinstance(elt, ast.Constant):
+                    declared.add(elt.value)
+    written = set(re.findall(r'targets\["([A-Za-z0-9_]+)"\]', src))
+    written |= {f"{p}_{k}" for p in ("P", "R") for k in ("1", "2", "4")
+                if re.search(rf'f"{p}_\{{k\}}"', src)}
+    assert written <= declared, f"written but never declared: {sorted(written - declared)}"

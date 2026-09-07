@@ -359,18 +359,24 @@ def main() -> int:
         for si in order:                                        # full-position arms
             for q in per_span[si]["pos"]:
                 targets["T_L0_all"][q] = torch.from_numpy(per_span[si]["L0"])
+                # H-W24: this arm is CONDITIONAL, so it can hold fewer positions than T_L0_all
+                # when a span has an L0 anchor but no L2 one. In job 379819 the counts happened to
+                # match (L2 anchored all 375 L0-anchored spans), which is why H-W16a's +0.66 is
+                # sound -- but that was luck of coverage, not construction. record_positions now
+                # stamps both counts and arm_guard.paired refuses the contrast if they diverge.
                 if "L2" in per_span[si]:
                     targets["T_L2_all"][q] = torch.from_numpy(per_span[si]["L2"])
         for si in sub:                                          # matched L0/L1 subset
             for q in per_span[si]["pos"]:
                 targets["T_L0_sub"][q] = torch.from_numpy(per_span[si]["L0"])
                 targets["T_L1_sub"][q] = torch.from_numpy(per_span[si]["L1"])
-        rev = order[::-1]
-        for k in (1, 2, 4):
-            for name, seq_ in ((f"P_{k}", order[:k]), (f"R_{k}", rev[:k])):
-                for si in seq_:
-                    for q in per_span[si]["pos"]:
-                        targets[name][q] = torch.from_numpy(per_span[si]["L0"])
+        if not args.no_ladder:
+            rev = order[::-1]
+            for k in (1, 2, 4):
+                for name, seq_ in ((f"P_{k}", order[:k]), (f"R_{k}", rev[:k])):
+                    for si in seq_:
+                        for q in per_span[si]["pos"]:
+                            targets[name][q] = torch.from_numpy(per_span[si]["L0"])
 
         pids, rids = tr["l1b_prompt_ids"], tr["l0_reply_ids"]
         rep.set_targets(None)
