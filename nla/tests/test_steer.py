@@ -36,17 +36,19 @@ PROMPT = "Write one sentence about sorting algorithms."
 def _model_cached() -> bool:
     """Is the test LM actually loadable offline on this host?
 
-    It is not, on juno: `Qwen/Qwen2.5-0.5B-Instruct` was never fetched into the HF cache, and the
-    2026-09-02 constraint forbids running Qwen models anyway, so it never will be. These nine tests
-    have therefore been ERRORING on every run since the migration -- noise that hides real failures
-    and, on 2026-09-06, failed a GPU job outright when a broadened `-k` filter happened to select
-    two of them. Skipping is the honest state: the tests are not passing, and they are not broken
-    either; the fixture is unavailable.
+    Not quite, on juno, and the precise reason matters. `Qwen/Qwen2.5-0.5B-Instruct` IS in the HF
+    cache -- but config and tokenizer only, **zero weight shards**, which is why transformers raises
+    "does not appear to have a file named model.safetensors" rather than a missing-repo error. The
+    2026-09-02 constraint forbids running Qwen models, so the weights will not be fetched. These
+    nine tests have therefore been ERRORING on every run since the migration -- noise that hides
+    real failures and, on 2026-09-06, failed a GPU job outright when a broadened `-k` filter
+    selected two of them. Skipping is the honest state: not passing, not broken; fixture absent.
+    (An earlier version of this comment said the model "was never fetched"; that was wrong.)
     """
     from pathlib import Path
     root = Path(os.environ.get("HF_HOME", Path.home() / ".cache/huggingface")) / "hub"
     d = root / f"models--{MODEL.replace('/', '--')}"
-    return d.exists() and any(d.glob("snapshots/*/*.safetensors"))
+    return d.exists() and any(d.glob("snapshots/*/*.safetensors"))   # weights, not just config
 
 
 @pytest.fixture(scope="module")

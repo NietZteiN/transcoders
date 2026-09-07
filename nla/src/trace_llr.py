@@ -208,6 +208,15 @@ def main() -> int:
             for true_name, decoy_name in (p.get("rename_map") or {}).items():
                 if not decoy_name or true_name.lower() == decoy_name.lower():
                     continue
+                # A '?unpairedN' key is the converter's marker for "renaming happened but the
+                # original name could not be recovered" (src/convert_stimuli.py:derive_rename_map
+                # falls back to a set difference when the identifier sequences differ in length).
+                # Substituting it writes the literal string "?unpaired0" into the gloss handed to
+                # the reconstructor, so the arm stops being "swap the decoy for its true name" and
+                # becomes "swap it for a sentinel". Measured 2026-09-07: this fired on 11 of 60
+                # banked items. `task_bank.glosses` guards this and this loop did not.
+                if str(true_name).startswith("?unpaired"):
+                    continue
                 _, n = substitute_terms(p["gloss_decoy"], {decoy_name: true_name})
                 if n == 1:
                     cands.append((p["gloss_decoy"].lower().find(decoy_name.lower()), decoy_name, true_name))
