@@ -61,9 +61,14 @@ def main() -> int:
     print(f"[FC] {args.model} = {model_name}", flush=True)
 
     def gen(user: str) -> str:
-        ids = tokz.apply_chat_template([{"role": "user", "content": user}],
+        # apply_chat_template returns a BatchEncoding, not a bare tensor, in this transformers
+        # version -- generate() then fails on `inputs_tensor.shape`. Ask for ids explicitly and
+        # accept either shape, so a library change cannot silently break this again.
+        enc = tokz.apply_chat_template([{"role": "user", "content": user}],
                                        tokenize=True, add_generation_prompt=True,
-                                       return_tensors="pt").to(model.device)
+                                       return_tensors="pt", return_dict=True)
+        ids = enc["input_ids"] if hasattr(enc, "keys") else enc
+        ids = ids.to(model.device)
         with torch.no_grad():
             o = model.generate(ids, max_new_tokens=MAX_NEW_GEN, do_sample=False,
                                pad_token_id=tokz.pad_token_id or tokz.eos_token_id)

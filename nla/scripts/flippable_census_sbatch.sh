@@ -22,6 +22,9 @@ echo "# flippable census · job $SLURM_JOB_ID on $SLURMD_NODENAME · $(date -u +
 sha256sum nla/src/flippable_census.py
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader || true
 
+echo; echo "=== CPU path checks (tokenizer only, no weights) ==="
+python -m pytest nla/tests/test_census_path.py -q || exit 1
+
 echo; echo "=== SMOKE (4 items) ==="
 python nla/src/flippable_census.py --model llama8b --limit 4 --out-dir "$OUT/smoke" \
   --max-hours 1 || exit 1
