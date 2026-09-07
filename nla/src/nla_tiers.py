@@ -52,8 +52,15 @@ from nla_writeback import MAX_NEW_GEN, SUPPORT_NATS, VETO_DROP, N_BOOT, term_spa
 from arm_guard import ArmNotWritten, arm_series, paired, record_positions  # noqa: E402
 from repair_pairs import recover  # noqa: E402
 
-ARMS = ("SELF", "T_L0_all", "T_L2_all", "T_L0_sub", "T_L1_sub",
-        "P_1", "P_2", "P_4", "R_1", "R_2", "R_4")
+ARMS_FULL = ("SELF", "T_L0_all", "T_L2_all", "T_L0_sub", "T_L1_sub",
+             "P_1", "P_2", "P_4", "R_1", "R_2", "R_4")
+# The ladder arms answer H-W15, which is settled (job 379819) and whose residual was explained
+# offline on 2026-09-07 without GPU. They also cannot pass `arm_guard.paired`: the forward and
+# reverse ladders select DIFFERENT spans at each k, spans differ in token length, so the two arms
+# write different numbers of positions (equal on only 8/49 items at k=4). That mismatch is exactly
+# what the guard exists to refuse, and refusing it here is correct rather than inconvenient.
+ARMS_NO_LADDER = ("SELF", "T_L0_all", "T_L2_all", "T_L0_sub", "T_L1_sub")
+ARMS = ARMS_FULL
 GEN_ARMS = ("T_L2_all", "T_L1_sub")
 GAP_BAR = SUPPORT_NATS
 SELF_TOL = 1.0
@@ -120,11 +127,11 @@ def score(rows: list[dict], baseline: dict | None, out_p: Path) -> dict:
     # H-W15: forward vs reverse at each k. "Quantity" requires every |R_k - P_k| to be small AND
     # its CI to contain 0 -- a small mean with a CI excluding 0 is still a position effect.
     ladder = {}
-    for k in ("1", "2", "4"):
+    for k in ([] if not any(a.startswith("R_") for a in ARMS) else ("1", "2", "4")):
         v = paircol(f"R_{k}", f"P_{k}"); m, lo, hi = boot(v)
         ladder[k] = {"diff_mean": m, "ci95": [lo, hi],
                      "matches": bool(abs(m) < GAP_BAR and lo <= 0.0 <= hi)}
-    quantity = bool(all(x["matches"] for x in ladder.values()))
+    quantity = bool(ladder) and bool(all(x["matches"] for x in ladder.values()))
 
     structure, meaning = contrasts["H_W16a_structure"]["clears"], contrasts["H_W16b_meaning"]["clears"]
     if not self_ok:
@@ -194,6 +201,10 @@ def main() -> int:
     ap.add_argument("--traces", default=None)
     ap.add_argument("--no-generate", action="store_true")
     ap.add_argument("--score-only", action="store_true")
+    ap.add_argument("--no-ladder", action="store_true",
+                    help="drop the P_k/R_k dose-ladder arms. H-W15 is settled and the two ladders "
+                         "write different position counts, which arm_guard.paired correctly "
+                         "refuses; keeping them would block the run for no new information.")
     ap.add_argument("--repair", action="store_true",
                     help="H-W23: fill anchors the stimulus pipeline lost, using repair_pairs. The "
                          "recorded rename_map still takes precedence wherever it has a real key; "
@@ -210,6 +221,9 @@ def main() -> int:
     if args.model == "qwen7b" and not args.allow_banked_host:
         print("[W16] REFUSED: qwen7b is a Chinese model; pass --allow-banked-host.")
         return 2
+    global ARMS
+    if args.no_ladder:
+        ARMS = ARMS_NO_LADDER
     model_name, layer = HOSTS[args.model]
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
     if args.score_only:

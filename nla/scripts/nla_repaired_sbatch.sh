@@ -49,9 +49,9 @@ python -m pytest nla/tests/test_arm_guard.py nla/tests/test_repair_pairs.py \
 python -m pytest nla/tests/test_steer.py -q -k "replacer or no_grad" || exit 1
 
 echo; echo "=== SMOKE (3 items, full path incl. generation) ==="
-python nla/src/nla_tiers.py --repair --model "$HOST" --smoke --out-dir "$OUT/smoke" \
+python nla/src/nla_tiers.py --repair --no-ladder --model "$HOST" --smoke --out-dir "$OUT/smoke" \
   --max-hours 1 || exit 1
 
 echo; echo "=== FULL (60 items) ==="
-python nla/src/nla_tiers.py --repair --model "$HOST" --out-dir "$OUT" --max-hours 9 || exit 1
+python nla/src/nla_tiers.py --repair --no-ladder --model "$HOST" --out-dir "$OUT" --max-hours 9 || exit 1
 echo "# done $(date -u +%FT%TZ)"
