@@ -15,6 +15,7 @@ Run:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -32,8 +33,26 @@ SEED = 20260724
 PROMPT = "Write one sentence about sorting algorithms."
 
 
+def _model_cached() -> bool:
+    """Is the test LM actually loadable offline on this host?
+
+    It is not, on juno: `Qwen/Qwen2.5-0.5B-Instruct` was never fetched into the HF cache, and the
+    2026-09-02 constraint forbids running Qwen models anyway, so it never will be. These nine tests
+    have therefore been ERRORING on every run since the migration -- noise that hides real failures
+    and, on 2026-09-06, failed a GPU job outright when a broadened `-k` filter happened to select
+    two of them. Skipping is the honest state: the tests are not passing, and they are not broken
+    either; the fixture is unavailable.
+    """
+    from pathlib import Path
+    root = Path(os.environ.get("HF_HOME", Path.home() / ".cache/huggingface")) / "hub"
+    d = root / f"models--{MODEL.replace('/', '--')}"
+    return d.exists() and any(d.glob("snapshots/*/*.safetensors"))
+
+
 @pytest.fixture(scope="module")
 def lm():
+    if not _model_cached():
+        pytest.skip(f"{MODEL} not in the offline HF cache on this host")
     from transformers import AutoModelForCausalLM, AutoTokenizer
     torch.manual_seed(SEED)
     tok = AutoTokenizer.from_pretrained(MODEL)

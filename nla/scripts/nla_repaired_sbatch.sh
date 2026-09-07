@@ -40,9 +40,13 @@ nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader || true
 # --deterministic stays OFF (2026-08-29: it changes answers and forks the corpus).
 
 echo; echo "=== unit: the frozen verdict table ==="
+# Explicit file lists, not a keyword filter. Job 380178 died here at 47 s because a broadened
+# `-k` included the word "identical", which matched two tests needing an LM fixture that does not
+# exist on this host as well as the repair test it was meant to select. A selector that silently
+# changes which tests run is worse than no selector.
 python -m pytest nla/tests/test_arm_guard.py nla/tests/test_repair_pairs.py \
-  nla/tests/test_writeback.py nla/tests/test_steer.py -q \
-  -k "verdict or veto or support or foreign or replacer or no_grad or bug or rename or recover or align or mutual or identical or unrelated or masking or self_arm or legacy or positions" || exit 1
+  nla/tests/test_writeback.py -q || exit 1
+python -m pytest nla/tests/test_steer.py -q -k "replacer or no_grad" || exit 1
 
 echo; echo "=== SMOKE (3 items, full path incl. generation) ==="
 python nla/src/nla_tiers.py --repair --model "$HOST" --smoke --out-dir "$OUT/smoke" \
