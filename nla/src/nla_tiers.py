@@ -50,6 +50,7 @@ from steer_run import HOSTS, AR_CHECKPOINTS, build_user, graded, load_pairs, SEE
 from nla_cycle import AV_CHECKPOINTS, MAX_NEW_READ  # noqa: E402
 from nla_writeback import MAX_NEW_GEN, SUPPORT_NATS, VETO_DROP, N_BOOT, term_spans  # noqa: E402
 from arm_guard import ArmNotWritten, arm_series, paired, record_positions  # noqa: E402
+from repair_pairs import recover  # noqa: E402
 
 ARMS = ("SELF", "T_L0_all", "T_L2_all", "T_L0_sub", "T_L1_sub",
         "P_1", "P_2", "P_4", "R_1", "R_2", "R_4")
@@ -193,6 +194,11 @@ def main() -> int:
     ap.add_argument("--traces", default=None)
     ap.add_argument("--no-generate", action="store_true")
     ap.add_argument("--score-only", action="store_true")
+    ap.add_argument("--repair", action="store_true",
+                    help="H-W23: fill anchors the stimulus pipeline lost, using repair_pairs. The "
+                         "recorded rename_map still takes precedence wherever it has a real key; "
+                         "recovery is used only where a '?unpaired' sentinel was written. Lifts "
+                         "coverage 375->471 (L0) and 131->471 (L1), JavaScript 7->240.")
     ap.add_argument("--strict-anchor", action="store_true",
                     help="H-W17: require a rename_map entry, so only spans a tier genuinely "
                          "RENAMED qualify. Drops coverage 190 -> 131 spans and 49 -> 20 items, "
@@ -264,6 +270,14 @@ def main() -> int:
         tr = traces[sid]
         user1 = build_user(p["code_l1b"], p["call_l1b"])
         inv = {v: k for k, v in (p["rename_map"] or {}).items()}
+        lang = p.get("language") or "python"
+        # Recovered {original: renamed}; inverted for the decoy->original direction. Computed once
+        # per item and consulted ONLY where the recorded map wrote a '?unpaired' sentinel.
+        rec_inv: dict[str, str] = {}
+        rec_tier: dict[str, dict[str, str]] = {}
+        if args.repair:
+            rec_inv = {v: k for k, v in
+                       recover(p["code_l0"], p["code_l1b"], lang)[0].items()}
         spans = (p.get("id_spans_l1b") or [])[: args.max_spans_per_item]
         if not spans:
             continue
@@ -286,7 +300,9 @@ def main() -> int:
             diag["spans"] += 1
             decoy = p["code_l1b"][int(sp[0]):int(sp[1])].strip()
             true = inv.get(decoy)
-            if not true:
+            if (not true or str(true).startswith("?unpaired")) and args.repair:
+                true = rec_inv.get(decoy)
+            if not true or str(true).startswith("?unpaired"):
                 continue
             pos, _ = span_token_positions(tokz, user1, p["code_l1b"], [sp])
             if not pos or max(pos) >= len(full1.activations):
@@ -294,8 +310,14 @@ def main() -> int:
             got = {}
             for t in ("L0", "L1", "L2"):
                 fa, row_t, ut = acts[t]
-                term = (true if t == "L0"
-                        else tier_anchor(row_t, true, t, strict=args.strict_anchor))
+                if t == "L0":
+                    term = true
+                else:
+                    term = tier_anchor(row_t, true, t, strict=args.strict_anchor)
+                    if term is None and args.repair:
+                        if t not in rec_tier:
+                            rec_tier[t] = recover(p["code_l0"], row_t["code"], lang)[0]
+                        term = rec_tier[t].get(true)
                 if term is None:
                     continue
                 occ = term_spans(row_t["code"], term)
