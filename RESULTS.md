@@ -1,6 +1,6 @@
 # Results — master index
 
-*Last updated: 2026-09-07 · generated from the 123 dated entries in [`log/`](log/); every number here
+*Last updated: 2026-09-07 · generated from the 124 dated entries in [`log/`](log/); every number here
 is quoted from the entry that produced it.*
 
 This is a reading index over the experiment ledger, not a replacement for it. Each row names the
@@ -368,21 +368,45 @@ disagreeing items. Gemma has zero reverse flips and twice the net penalty. **The
 is unavailable on either host at n = 60** — which is what retrospectively justifies `G_sum` as the
 readout.
 
-### 5.6 Running now — H-W31, which heads carry it
+### 5.6 H-W31 — which heads carry it (`W31-CONCENTRATED`, `W31-SAME-CIRCUIT`)
 
-The write lands on *prompt* positions; `G_sum` is scored on *reply* tokens. Nothing carries a nat
-between them except an attention head in layers 33–47, which makes "which heads" a pre-registrable
-question. Every head and MLP of those layers (255 components) is patched between an unsteered run
-and a steered one, both directions (sufficiency and necessity), plus a read-side knockout that
-blinds one head to the span keys. Two identities gate the run — patching a run with its own
-activations must change nothing, and patching *all* components must reproduce the full effect —
-and a failure of either voids it. Top-k is selected on one half of the programs and scored on the
-other, against uniform-random-k and depth-matched-random-k nulls.
+The write lands on prompt positions; the score is summed over reply tokens. Nothing carries a nat
+between them except an attention head in layers 33–47 — so every head and MLP of those layers
+(255 components) was patched between an unsteered run and a steered one, in both directions, with
+top-k selected on the opposite half of the programs. Job 382366, 2:27:24, **98,400 forwards**.
 
-Status: job 382366, h200. Smoke passed both identities exactly. Full run in progress; verdicts
-(`W31-CONCENTRATED` / `DISTRIBUTED` / `INTERMEDIATE`, and same-circuit vs different-circuit between
-the reconstructed and raw states) **are not yet in**. Pre-registration:
-[`log/nla-harness/2026-09-07_head-mediation-prereg.md`](log/nla-harness/2026-09-07_head-mediation-prereg.md).
+**The identity gate passed exactly**: `SELF` max **0.0000** over 960 assertions, `ALL` **0.0000**,
+`ko_gap` **0.0000** — bit-identical, not merely inside the 0.05 tolerance. `P_patch` returns
+**+41.52**, reproducing §5.4's repaired value from a different script.
+
+| k (of 255) | TOP recovers | vs random-16 bar | | best single components |
+|---|---|---|---|---|
+| 1 | 0.18 / 0.19 | — | | head **L41H4** +7.28 / +7.86 |
+| **8** | **0.60 / 0.62** | — | | MLP **L34M** +4.81 / +5.39 |
+| **16** | **0.80 / 0.83** (bar 0.50) | **+30.92 / +34.06** points (bar +30) | | top-16 = 14 heads + 2 MLPs |
+| 32 | 0.95 / 0.99 | — | | |
+
+**Eight components — 3.1 % of the layers above the write — carry 60 % of the effect, and a single
+head carries 18 %.** Necessity concentrates on the **global** layers 41 (+4.78) and 47 (+5.74), the
+ones that can see a span 1,024 tokens back. The uniform-random null sits near zero while the
+layer-matched null reaches +13.95 at k = 32 — depth alone buys a third of the localisation, which is
+why that null was pre-registered.
+
+**H-W31c → `W31-SAME-CIRCUIT`** (Spearman **0.838**, Jaccard top-16 **0.78**). The NLA-transported
+state is read by the same heads, in the same order, as the raw clean state — closing the last place
+the 98.3 % fidelity figure could have hidden a different route. **But the residue is systematic:**
+C3pure sits below P_patch with CI-clearing margins at precisely the load-bearing components
+(L46H1 −1.02, L34M −0.58, L41H4 −0.58, L45H3 −0.47, L47H2 −0.46). The ~1.7 % loss is not spread
+evenly — it is a consistent shortfall **at the heads that carry the most**, which is the shape a
+slightly-off direction makes and the most specific description of that loss the programme has.
+
+Two secondary results worth carrying: **13 of the top-16 heads read the span positions directly**
+(ρ(read, nec) ≈ 0.45), and the effect is **sub-additive** — single-component sufficiencies sum to
+0.62–0.68 of the total and summed necessity is *negative* at nine of fifteen layers, so what happens
+is a concentrated positive contribution net of a diffuse drag. The one prediction that failed:
+global-vs-local necessity was expected to **widen** on long items and does not (+0.270 vs +0.296,
+n = 11).
+
 ## 6. Coverage — what the corpus has and has not been asked
 
 ### 6.1 A stimulus fact discovered while writing this document (2026-09-07)
@@ -504,8 +528,11 @@ exit non-zero, and pre-registration with frozen thresholds.
 
 ## 8. Open questions, ranked by value per GPU-hour
 
-1. **H-W31 — which heads carry the transported state.** Running (job 382366); decides where a second
-   NLA layer would go.
+1. ~~H-W31~~ **done 2026-09-07** (§5.6). Successors, all cheap: **H-W35** — are the top-8 heads
+   specific to this write, or the general arrival point for any prompt edit? (ablate with no write;
+   this is the control the localisation needs before it is called a mechanism). **H-W36** — the
+   residue predicts anisotropic AR reconstruction error, computable from the banked vectors with no
+   GPU. **H-W37** — is L34M transport or re-normalisation?
 2. ~~H-W28~~ **done 2026-09-07** (§6.4). Successor: **H-W34** — L1·javascript cannot be repaired
    from inside this corpus; only the obfuscation generator, which did not travel to this host, could
    settle it. And **H-W33** — reclassify L3 spans by what the tier did, now that a validated L2→L3
