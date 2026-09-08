@@ -415,7 +415,13 @@ def stage_joint(args: argparse.Namespace, cfg: dict, out: Path) -> int:
     per_item = {a: {r["snippet_id"]: r["suf"] for r in hrows if r["arm"] == a} for a in ARMS}
     names = list(hrows[0]["suf"].keys())
     pool = [Component.from_name(n) for n in names]
-    sids = [r["snippet_id"] for r in hrows if r["arm"] == ARMS[0]]
+    # The selector must follow --arms, not the module constant: with `--arms N_foreign,...`
+    # `ARMS[0]` ("C3pure") matches no banked row and the stage silently does nothing.
+    # Job 383160 lost H-W35d that way (0 forwards, exit 0, no error).
+    first_arm = next((a for a in args.arm_list if any(r["arm"] == a for r in hrows)), None)
+    if first_arm is None:
+        print(f"{TAG} REFUSED: none of {args.arm_list} appears in {hp_}"); return 2
+    sids = [r["snippet_id"] for r in hrows if r["arm"] == first_arm]
 
     sink = open(out / "joint_rows.jsonl", "w")
     for ii, sid in enumerate(sids):
