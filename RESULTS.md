@@ -1,6 +1,6 @@
 # Results — master index
 
-*Last updated: 2026-09-07 · generated from the 120 dated entries in [`log/`](log/); every number here
+*Last updated: 2026-09-07 · generated from the 121 dated entries in [`log/`](log/); every number here
 is quoted from the entry that produced it.*
 
 This is a reading index over the experiment ledger, not a replacement for it. Each row names the
@@ -226,6 +226,31 @@ Reference scale, measured on the same corpus: whole-prompt swap (clean prompt in
 **+121.13** = the unit; prompting **+27.53**; a random unit vector at the same positions **+19.60**;
 frozen support threshold **+12.11**.
 
+### 5.0 How many tokens — the intervention footprint vs the readout
+
+These are different token counts and are easy to conflate. **The write lands on *prompt* positions;
+the score is summed over *reply* positions. They do not overlap** — which is what makes "how does the
+effect get from one to the other" a well-posed question (§5.6).
+
+| | tokens | |
+|---|---|---|
+| **Written** — where the intervention actually happens | **1,459** token positions | across **471** identifier spans in **60** programs: median **22** per program (range **10–58**), **3.10** positions per span |
+| **Prompt** — what those positions sit inside | **15,921** total | the write touches **9.2 %** of all prompt tokens; median **9.4 %** per program |
+| **Scored** — the readout | **32,586** clean-reply tokens | median **483** per reply, range **65 – 1,100** (1,100 is the generation cap) |
+| **Whole scored sequence** | median **741**, max **1,645** | prompt + reply, teacher-forced in one pass |
+
+So the ratio is **22.3 scored tokens per written token**, and a typical intervention rewrites about
+one prompt token in eleven. Two consequences the ledger draws from this:
+
+- **Coverage is not the limitation, and was measured rather than assumed.** Pushing the same write
+  across the identifier spans asymptotes at **0.618** against **1.268** for a direct edit at the
+  answer position — **48.8 %** of the reference, with the gain per doubling down to +1.5 %. That is
+  a ceiling of the site, not of the grid.
+- **The edit arm ran on fewer positions than the ceiling arms.** In stage 1, of 476 spans (1,480
+  positions) only **198 spans — 41.6 %** carried a read the protocol could actually edit; the
+  remaining spans fell back to the unedited vector. W1's +19.47 is therefore an
+  *under*-statement of the protocol at full coverage, and it still lands on the random benchmark.
+
 ### 5.1 Stage 0 — is the round trip even span-specific? (`NLA-LIVE`)
 
 | measure | matched span | another span, same item | another item |
@@ -439,6 +464,7 @@ the literal string `?unpaired0` on 11 of 60 items before a guard was added.
 | greedy reproducibility floor | **0.85–0.90** per-item agreement (**±0.075**) | binds every generated-text result; reads are bit-exact and carry no caveat |
 | flippable denominator | **6 / 60** items (Gemma); Llama 9 →wrong but **6 →right** | perfect rescue = **+0.100** = the support threshold; accuracy claims are unavailable at this n |
 | support threshold | **+12.11** nats = 10 % of mean `G_sum` **121.127** | but a *random vector* scores +19.60, so a positive must clear that and prompting (+27.53) to mean anything |
+| intervention footprint | **1,459** written prompt positions / **471** spans / 60 items; **9.2 %** of prompt tokens | the score is summed over **32,586** reply tokens — a 22.3 : 1 ratio, and the two sets do not overlap |
 | readout | `G_sum`, not per-token G | per-token G is ~1/reply-length (ρ **+0.889**); use G_sum for anything item-level |
 | answer entropy | AUC **0.843**, held out **≈0.84** | the baseline any internal correctness signal must beat |
 | seeds | **2 is the floor, not the target** | one sign flip (+7.8 points on a single family) was found by adding a second seed |
@@ -475,5 +501,5 @@ exit non-zero, and pre-registration with frozen thresholds.
    prerequisite.
 
 ## Changelog
-- **2026-09-07** — created, covering the 120 entries from 2026-07-24 to 2026-09-07. Records the L3
+- **2026-09-07** — created, covering the 121 entries from 2026-07-24 to 2026-09-07. Records the L3
   composition finding (§6.1) discovered while assembling it.
