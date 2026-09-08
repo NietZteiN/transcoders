@@ -1,6 +1,6 @@
 # Results — master index
 
-*Last updated: 2026-09-07 · generated from the 121 dated entries in [`log/`](log/); every number here
+*Last updated: 2026-09-07 · generated from the 123 dated entries in [`log/`](log/); every number here
 is quoted from the entry that produced it.*
 
 This is a reading index over the experiment ledger, not a replacement for it. Each row names the
@@ -452,10 +452,31 @@ matching**, and emits `?unpairedN` sentinels when that fails. Share of keys lost
 
 The failure is large everywhere — the best cell still loses 42 % — and it **inverts between tiers**,
 because JS L1 rewrites member access (`lst.length` → `c['length']`) and L3 stacks renaming on
-flattening, while L1b is a pure rename. Repaired offline for the W corpus by `repair_pairs.recover()`
-(precision/recall 1.000; coverage 375 → **471** of 476 spans). **Unrepaired everywhere else it is
-used — including Instrument 1's identifier-level attention measures.** One banked arm substituted
-the literal string `?unpaired0` on 11 of 60 items before a guard was added.
+flattening, while L1b is a pure rename. One banked arm substituted the literal string `?unpaired0`
+on 11 of 60 items before a guard was added.
+
+**Repaired corpus-wide on 2026-09-07 (H-W28).** `repair_pairs.recover()` was applied to all 350
+stimulus rows, anchoring L1/L1b on L0 and — using §6.1's finding as an engineering fact — **L3 on
+L2**, which it differs from by a rename only:
+
+| | pairs |
+|---|---|
+| pipeline `rename_map`, real pairs | 539 |
+| **recovered and written** | **1,103** |
+| **usable total** | **1,642 — 3.05×** |
+
+Precision is **1.000 in every cell that could be scored** (539/539 comparable pairs agree with the
+pipeline). 10 of 12 cells licensed; **both L1·javascript cells were refused** by the frozen gate for
+lack of ground truth rather than for being wrong, and their 181 recovered pairs are reported but not
+written. The L3 routing is what makes the worst cells recoverable: anchored on L0, JavaScript L3
+yields **no checkable pair at all**; anchored on L2, 24 at precision 1.000 and **401 pairs**
+unlocked. Output is a sibling file (`data/stimuli/pairing_recovered.jsonl`) with a per-key
+`source ∈ {pipeline, recovered}` — the stimulus files are never edited in place — so **Instrument 1
+now has a validated mapping to join against** for every tier except L1·javascript.
+
+The precision figure carries one bound that must travel with it: validation is only possible where
+the pipeline already succeeded, and those are plausibly the easy cases, so 1.000 is an **upper
+bound** over the slots actually filled.
 
 ## 7. Constants and standing caveats
 
@@ -485,8 +506,10 @@ exit non-zero, and pre-registration with frozen thresholds.
 
 1. **H-W31 — which heads carry the transported state.** Running (job 382366); decides where a second
    NLA layer would go.
-2. **H-W28 — re-derive `rename_map` offline** as a sibling field, and tell Instrument 1. CPU-only;
-   the current hole is 42–97 % and silently inherited.
+2. ~~H-W28~~ **done 2026-09-07** (§6.4). Successor: **H-W34** — L1·javascript cannot be repaired
+   from inside this corpus; only the obfuscation generator, which did not travel to this host, could
+   settle it. And **H-W33** — reclassify L3 spans by what the tier did, now that a validated L2→L3
+   mapping exists; 1,327 JavaScript L3 spans currently carry a decoy label on code with no decoy.
 3. **The L3 question, now that L3 is known to be L1 ∘ L2.** Either build a true L1b ∘ L2 tier (the
    charter's decisive test does not currently exist), or re-scope every L3 claim as
    *nonsense-renaming + flattening*. CPU to decide, corpus work to fix.
