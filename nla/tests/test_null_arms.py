@@ -101,3 +101,45 @@ def test_all_arms_cover_exactly_the_same_positions():
     want = {q for r in spans for q in r["positions"]}
     for arm, t in tg.items():
         assert set(t) == want, f"{arm} wrote {len(t)} positions, expected {len(want)}"
+
+
+# ── H-W39 dose arms ──────────────────────────────────────────────────────────
+
+def test_dose_arms_interpolate_toward_the_same_foreign_vector_as_N_foreign():
+    """alpha=1 must be the BANKED N_foreign arm, not an independent draw — otherwise the dose
+    curve's endpoint is a different experiment from the one it is being compared against."""
+    from nla_heads import DOSE_ARMS
+    mine, theirs = _spans("mine", 2, base=0), _spans("theirs", 2, base=2)
+    h0, c3 = _vecs(4)
+    pool = mine + theirs
+    tg = item_targets(mine, h0, c3, ("N_foreign",) + DOSE_ARMS, pool=pool)
+    for r in mine:
+        q = r["positions"][0]
+        own = h0[r["vec"]]
+        far = tg["N_foreign"][q].numpy()
+        # D_75 must lie much closer to `far` than D_25 does
+        d25, d75 = tg["D_25"][q].numpy(), tg["D_75"][q].numpy()
+        n = lambda v: v / (np.linalg.norm(v) + 1e-12)
+        assert float(n(d75) @ n(far)) > float(n(d25) @ n(far))
+        assert float(n(d25) @ n(own)) > float(n(d75) @ n(own))
+
+
+def test_dose_vectors_are_unit_norm_and_cosine_is_monotone():
+    from nla_heads import DOSE_ARMS
+    spans = _spans("mine", 2)
+    h0, c3 = _vecs(4)
+    tg = item_targets(spans, h0, c3, DOSE_ARMS, pool=spans + _spans("other", 2, base=2))
+    for arm in DOSE_ARMS:
+        for v in tg[arm].values():
+            assert abs(float(v.norm()) - 1.0) < 1e-5
+    cos = item_targets.last_cosines
+    assert cos["D_25"] > cos["D_50"] > cos["D_75"], f"dose not monotone: {cos}"
+
+
+def test_dose_arms_absent_without_a_foreign_pool():
+    """No other item => no interpolation target. Absent, never silently the own state."""
+    from nla_heads import DOSE_ARMS
+    spans = _spans("only", 2)
+    h0, c3 = _vecs(2)
+    tg = item_targets(spans, h0, c3, DOSE_ARMS, pool=spans)
+    assert not any(a in tg for a in DOSE_ARMS)

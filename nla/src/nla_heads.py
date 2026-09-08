@@ -65,6 +65,8 @@ from head_patch import (AttentionKnockout, Component, ComponentPatcher, MLP,  # 
 EXPERIMENT = "W31_head_localisation"
 ARMS = ("C3pure", "P_patch")
 NULL_ARMS = ("N_sibling", "N_foreign", "N_random")   # H-W35, built from banked vectors
+DOSE_ARMS = ("D_25", "D_50", "D_75")                 # H-W39, own clean state -> the SAME foreign one
+DOSE_ALPHA = {"D_25": 0.25, "D_50": 0.50, "D_75": 0.75}
 CFG_PATH = _NLA_ROOT / "configs" / "nla_heads.yaml"
 TAG = "[W31]"
 
@@ -210,6 +212,7 @@ def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray,
     position written with the wrong thing.
     """
     tg: dict[str, dict[int, torch.Tensor]] = {a: {} for a in arms}
+    cosines: dict[str, list[float]] = {a: [] for a in arms if a in DOSE_ARMS}
     n_spans = len(spans)
     for si, r in enumerate(spans):
         vec_self = int(r["vec"])
@@ -228,10 +231,28 @@ def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray,
                 cand = [p for p in pool if p["snippet_id"] != r["snippet_id"]]
                 if cand:
                     tg["N_foreign"][q] = torch.from_numpy(h0[int(cand[int(rng.integers(0, len(cand)))]["vec"])])
+            # H-W39: interpolate toward the SAME foreign vector N_foreign draws, so alpha=1 is
+            # the banked arm rather than an independent draw. PositionReplacer norm-matches on
+            # write, so this moves direction only; the ACHIEVED cosine is recorded because a linear
+            # blend of near-orthogonal vectors is not uniform in angle.
+            dose = [a for a in tg if a in DOSE_ARMS]
+            if dose and pool:
+                rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#for".encode()))
+                cand = [q_ for q_ in pool if q_["snippet_id"] != r["snippet_id"]]
+                if cand:
+                    far = h0[int(cand[int(rng.integers(0, len(cand)))]["vec"])]
+                    own = h0[vec_self]
+                    for a in dose:
+                        v = (1.0 - DOSE_ALPHA[a]) * own + DOSE_ALPHA[a] * far
+                        v = v / (np.linalg.norm(v) + 1e-12)
+                        tg[a][q] = torch.from_numpy(v.astype(np.float32))
+                        cosines[a].append(float(np.dot(v, own) / (np.linalg.norm(own) + 1e-12)))
             if "N_random" in tg:
                 rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#rnd".encode()))
                 v = rng.standard_normal(h0.shape[1]).astype(np.float32)
                 tg["N_random"][q] = torch.from_numpy(v / (np.linalg.norm(v) + 1e-12))
+    item_targets.last_cosines = {a: (float(np.mean(v)) if v else float('nan'))
+                                 for a, v in cosines.items()}
     return {a: t for a, t in tg.items() if t}
 
 
@@ -376,6 +397,8 @@ def stage_sweep(args: argparse.Namespace, cfg: dict, out: Path) -> int:
                 host.ko.clear()
             host.rep.set_targets(None)
             record_positions(row, {"S": tg, "ALL": all_patches})
+            if arm in DOSE_ARMS:
+                row["achieved_cos_to_own"] = getattr(item_targets, "last_cosines", {}).get(arm)
             row["ms_per_forward"] = host.ms_per_forward()
             sink.write(json.dumps(row) + "\n"); sink.flush(); n_rows += 1
             best = max(row["suf"].items(), key=lambda kv: kv[1])
@@ -712,7 +735,7 @@ def main() -> int:
     if args.self_per_item is None:
         args.self_per_item = int(cfg["self_per_item"])
     args.arm_list = tuple(a.strip() for a in args.arms.split(",")) if args.arms else ARMS
-    bad = [a for a in args.arm_list if a not in ARMS + NULL_ARMS]
+    bad = [a for a in args.arm_list if a not in ARMS + NULL_ARMS + DOSE_ARMS]
     if bad:
         print(f"{TAG} REFUSED: unknown arms {bad}"); return 2
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
