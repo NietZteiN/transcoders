@@ -1,6 +1,6 @@
 # transcoders — SAE + Transcoder Feature & Circuit Analysis
 
-*Last updated: 2026-08-04*
+*Last updated: 2026-09-07*
 
 **Instrument 3** of the mechanistic follow-up study *"Opening the Black Box of
 Obfuscated-Code Comprehension."* Papers 1–3 established *behaviorally* how code
@@ -19,6 +19,17 @@ Block Model. The experiment menu (E1–E8) lives in
 [`docs/experiment_menu.md`](docs/experiment_menu.md); the hypotheses ledger and task
 tracker in [`docs/CHECKLIST.md`](docs/CHECKLIST.md).
 
+## Results
+
+- **[`RESULTS.md`](RESULTS.md) — master index over every result in the ledger.** Charter status,
+  the readout programme, Phase-0 licensing, the retracted positives and the one survivor,
+  Experiment W in full, coverage gaps, standing constants, and the open questions. Every number is
+  quoted from the dated entry that produced it.
+- **[The Edit Bottleneck](https://claude.ai/code/artifact/e4c53ff9-4e05-4119-bec7-c0f7b95658c7)** —
+  published summary of the flagship finding: turning an activation into English and back is
+  **98.3 %** causally faithful, while *editing* the English does nothing a random vector does not.
+- [`log/README.md`](log/README.md) — the full append-only ledger, 120 dated entries by thread.
+
 ## Layout
 
 | Path | Contents |
@@ -28,6 +39,7 @@ tracker in [`docs/CHECKLIST.md`](docs/CHECKLIST.md).
 | `docs/` | Experiment menu, checklist, proposal deck |
 | `log/` | Research ledger, one folder per thread ([`log/README.md`](log/README.md) is the index) |
 | `nla/` | Instrument-2 Natural Language Autoencoder gear (see below) |
+| `RESULTS.md` | Master index over all results (see above) |
 | `papers/` | Foundational references — [`REFERENCES.md`](papers/REFERENCES.md) + [`references.bib`](papers/references.bib) (PDFs not committed) |
 | `scripts/` | Entry-point scripts |
 | `src/` | Library code |
@@ -52,4 +64,5 @@ conda env create -f environment.yml   # exact pins in environment.lock.txt
   repo — run `git submodule update --init` if you cloned without `--recurse-submodules`.
 
 ## Changelog
+- **2026-09-07** — Added [`RESULTS.md`](RESULTS.md) and linked the published summary artifact.
 - **2026-08-04** — Initial public release of the repo scaffold.
