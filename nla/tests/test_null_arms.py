@@ -52,7 +52,7 @@ def test_single_span_item_has_no_sibling_arm():
 def test_foreign_never_draws_from_its_own_item():
     mine, theirs = _spans("mine", 2, base=0), _spans("theirs", 2, base=2)
     h0, c3 = _vecs(4)
-    tg = item_targets(mine, h0, c3, ("N_foreign",), pool=mine + theirs)
+    tg = item_targets(mine, h0, c3, ("N_foreign",), span_pool=mine + theirs)
     foreign_vecs = {2, 3}
     for r in mine:
         for q in r["positions"]:
@@ -63,7 +63,7 @@ def test_foreign_never_draws_from_its_own_item():
 def test_foreign_absent_when_pool_has_only_this_item():
     spans = _spans("only", 2)
     h0, c3 = _vecs(2)
-    tg = item_targets(spans, h0, c3, ("N_foreign",), pool=spans)
+    tg = item_targets(spans, h0, c3, ("N_foreign",), span_pool=spans)
     assert "N_foreign" not in tg, "with no other item in the pool the arm must be absent"
 
 
@@ -81,8 +81,8 @@ def test_random_is_unit_norm_and_not_the_content():
 def test_draws_are_reproducible_and_position_independent():
     spans = _spans(n=3)
     h0, c3 = _vecs(3)
-    a = item_targets(spans, h0, c3, NULL_ARMS, pool=spans + _spans("other", 2, base=0))
-    b = item_targets(spans, h0, c3, NULL_ARMS, pool=spans + _spans("other", 2, base=0))
+    a = item_targets(spans, h0, c3, NULL_ARMS, span_pool=spans + _spans("other", 2, base=0))
+    b = item_targets(spans, h0, c3, NULL_ARMS, span_pool=spans + _spans("other", 2, base=0))
     for arm in a:
         for q in a[arm]:
             assert torch.equal(a[arm][q], b[arm][q]), f"{arm} not reproducible at {q}"
@@ -97,7 +97,7 @@ def test_all_arms_cover_exactly_the_same_positions():
     refuses them otherwise, and that refusal should never be reachable by construction."""
     spans = _spans(n=3)
     h0, c3 = _vecs(3)
-    tg = item_targets(spans, h0, c3, ARMS + NULL_ARMS, pool=spans + _spans("other", 2, base=0))
+    tg = item_targets(spans, h0, c3, ARMS + NULL_ARMS, span_pool=spans + _spans("other", 2, base=0))
     want = {q for r in spans for q in r["positions"]}
     for arm, t in tg.items():
         assert set(t) == want, f"{arm} wrote {len(t)} positions, expected {len(want)}"
@@ -112,7 +112,7 @@ def test_dose_arms_interpolate_toward_the_same_foreign_vector_as_N_foreign():
     mine, theirs = _spans("mine", 2, base=0), _spans("theirs", 2, base=2)
     h0, c3 = _vecs(4)
     pool = mine + theirs
-    tg = item_targets(mine, h0, c3, ("N_foreign",) + DOSE_ARMS, pool=pool)
+    tg = item_targets(mine, h0, c3, ("N_foreign",) + DOSE_ARMS, span_pool=pool)
     for r in mine:
         q = r["positions"][0]
         own = h0[r["vec"]]
@@ -128,7 +128,7 @@ def test_dose_vectors_are_unit_norm_and_cosine_is_monotone():
     from nla_heads import DOSE_ARMS
     spans = _spans("mine", 2)
     h0, c3 = _vecs(4)
-    tg = item_targets(spans, h0, c3, DOSE_ARMS, pool=spans + _spans("other", 2, base=2))
+    tg = item_targets(spans, h0, c3, DOSE_ARMS, span_pool=spans + _spans("other", 2, base=2))
     for arm in DOSE_ARMS:
         for v in tg[arm].values():
             assert abs(float(v.norm()) - 1.0) < 1e-5
@@ -141,5 +141,5 @@ def test_dose_arms_absent_without_a_foreign_pool():
     from nla_heads import DOSE_ARMS
     spans = _spans("only", 2)
     h0, c3 = _vecs(2)
-    tg = item_targets(spans, h0, c3, DOSE_ARMS, pool=spans)
+    tg = item_targets(spans, h0, c3, DOSE_ARMS, span_pool=spans)
     assert not any(a in tg for a in DOSE_ARMS)

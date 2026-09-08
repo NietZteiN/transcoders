@@ -194,7 +194,7 @@ def load_spans(out: Path) -> tuple[dict[str, list[dict]], np.ndarray, np.ndarray
 
 
 def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray,
-                 arms: Sequence[str] = ARMS, pool: list[dict] | None = None,
+                 arms: Sequence[str] = ARMS, span_pool: list[dict] | None = None,
                  ) -> dict[str, dict[int, torch.Tensor]]:
     """Per-arm {position: vector} for one item.
 
@@ -226,9 +226,9 @@ def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray,
                 j = int(rng.integers(0, n_spans - 1))
                 j = j + 1 if j >= si else j                      # never the span's own vector
                 tg["N_sibling"][q] = torch.from_numpy(h0[int(spans[j]["vec"])])
-            if "N_foreign" in tg and pool:
+            if "N_foreign" in tg and span_pool:
                 rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#for".encode()))
-                cand = [p for p in pool if p["snippet_id"] != r["snippet_id"]]
+                cand = [p for p in span_pool if p["snippet_id"] != r["snippet_id"]]
                 if cand:
                     tg["N_foreign"][q] = torch.from_numpy(h0[int(cand[int(rng.integers(0, len(cand)))]["vec"])])
             # H-W39: interpolate toward the SAME foreign vector N_foreign draws, so alpha=1 is
@@ -236,9 +236,9 @@ def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray,
             # write, so this moves direction only; the ACHIEVED cosine is recorded because a linear
             # blend of near-orthogonal vectors is not uniform in angle.
             dose = [a for a in tg if a in DOSE_ARMS]
-            if dose and pool:
+            if dose and span_pool:
                 rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#for".encode()))
-                cand = [q_ for q_ in pool if q_["snippet_id"] != r["snippet_id"]]
+                cand = [q_ for q_ in span_pool if q_["snippet_id"] != r["snippet_id"]]
                 if cand:
                     far = h0[int(cand[int(rng.integers(0, len(cand)))]["vec"])]
                     own = h0[vec_self]
@@ -315,7 +315,9 @@ def stage_sweep(args: argparse.Namespace, cfg: dict, out: Path) -> int:
     trc = Path(args.traces or _PROJ / f"data/nla/p0/trace_llr/{args.model}/traces.jsonl")
     traces = {t["snippet_id"]: t for t in map(json.loads, open(trc))}
     sids = _select_pairs(args, by_item)
-    pool = [r for rs in by_item.values() for r in rs]      # H-W35 foreign draws
+    span_pool = [r for rs in by_item.values() for r in rs]   # H-W35/H-W39 foreign draws
+    # NOTE: named `span_pool`, not `pool`. `stage_joint` already binds `pool` to the list of
+    # COMPONENTS for the random-k draws; job 383270 crashed when the two collided there.
     host = Host(args, cfg, knockout=args.read_knockout)
     single_layers = _layer_range(args.layers) if args.layers else (
         _layer_range(cfg["smoke_layers"]) if args.smoke else host.sweep_layers)
@@ -332,7 +334,7 @@ def stage_sweep(args: argparse.Namespace, cfg: dict, out: Path) -> int:
         tr = traces[sid]
         pids, rids = tr["l1b_prompt_ids"], tr["l0_reply_ids"]
         T = len(pids) + len(rids)
-        targets = item_targets(by_item[sid], h0, c3, args.arm_list, pool)
+        targets = item_targets(by_item[sid], h0, c3, args.arm_list, span_pool)
         span_keys = sorted(next(iter(targets.values())))
 
         host.rep.set_targets(None); host.patcher.set_patches(None)
@@ -428,14 +430,15 @@ def stage_joint(args: argparse.Namespace, cfg: dict, out: Path) -> int:
     by_item, h0, c3 = load_spans(out)
     trc = Path(args.traces or _PROJ / f"data/nla/p0/trace_llr/{args.model}/traces.jsonl")
     traces = {t["snippet_id"]: t for t in map(json.loads, open(trc))}
-    pool = [r for rs in by_item.values() for r in rs]
+    span_pool = [r for rs in by_item.values() for r in rs]   # spans, for the foreign/dose draws
     host = Host(args, cfg, knockout=False)
     all_comps = components(host.sweep_layers, cfg["n_heads"])
     k_list = [int(k) for k in cfg["k_list"]]
     n_random = int(cfg["n_random"])
 
     # Selection profiles per arm: item -> {component: suf}; the pool is the single list the sweep ran.
-    per_item = {a: {r["snippet_id"]: r["suf"] for r in hrows if r["arm"] == a} for a in ARMS}
+    per_item = {a: {r["snippet_id"]: r["suf"] for r in hrows if r["arm"] == a}
+                for a in args.arm_list}
     names = list(hrows[0]["suf"].keys())
     pool = [Component.from_name(n) for n in names]
     # The selector must follow --arms, not the module constant: with `--arms N_foreign,...`
@@ -452,7 +455,7 @@ def stage_joint(args: argparse.Namespace, cfg: dict, out: Path) -> int:
             print(f"{TAG} wall-clock stop after {ii} items", flush=True); break
         tr = traces[sid]
         pids, rids = tr["l1b_prompt_ids"], tr["l0_reply_ids"]
-        targets = item_targets(by_item[sid], h0, c3, args.arm_list, pool)
+        targets = item_targets(by_item[sid], h0, c3, args.arm_list, span_pool)
         host.rep.set_targets(None); host.patcher.set_patches(None)
         cU = host.patcher.record(); logp_U = host.logp(pids, rids); host.patcher.stop_recording()
         for arm in args.arm_list:
