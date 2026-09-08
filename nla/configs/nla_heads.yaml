@@ -1,0 +1,60 @@
+# H-W31 — head / MLP mediation map of the NLA-transported clean state.
+#
+# Pre-registered 2026-09-07: log/nla-harness/2026-09-07_head-mediation-prereg.md.
+# Every threshold below is FROZEN before the run. `nla/src/nla_heads.py` reads this file; CLI
+# flags override individual entries and the resolved values are copied into heads_stats.json.
+#
+#   python nla/src/nla_heads.py --model gemma12b --stage vectors --repair --out-dir <dir>
+#   python nla/src/nla_heads.py --model gemma12b --stage sweep   --read-knockout --out-dir <dir>
+#   python nla/src/nla_heads.py --model gemma12b --stage joint   --out-dir <dir>
+
+# ─── host and write site ─────────────────────────────────────────────────────────────
+# The write site is not free: the released pair is trained for layer 32 of gemma-3-12b-it
+# (hook on layers[32] == hidden_states[33]). Everything downstream of it is the sweep range.
+host: gemma12b                  # google/gemma-3-12b-it; qwen7b is refused (2026-09-02 constraint)
+write_layer: 32
+sweep_layers: [33, 47]          # inclusive; 15 layers x (16 heads + 1 MLP) = 255 components
+smoke_layers: [45, 47]          # single-component list only — hooks and ALL always span 33..47
+n_heads: 16
+head_dim: 256
+d_model: 3840
+sliding_window: 1024
+global_layers_every: 6          # layer i is global iff (i + 1) % 6 == 0 -> 35, 41, 47 downstream
+
+# ─── arms ───────────────────────────────────────────────────────────────────────────
+# C3pure = AR(AV(h_L0)) at the L1b spans: the NLA-transported clean state (the object of study).
+# P_patch = h_L0 itself: the raw clean state, comparator for H-W31c ("same route?").
+arms: [C3pure, P_patch]
+max_spans_per_item: 8
+repair: true                    # H-W23 repaired anchoring (471 spans / 60 items)
+
+# ─── measures ───────────────────────────────────────────────────────────────────────
+# suf_c  = dG(U, c <- S)                 sufficiency: one component carries S's state forward alone
+# nec_c  = dG(S) - dG(S, c <- U)         necessity: what is lost when one component is blind to S
+# read_c = logp_mref[L] - logp(S, head h at L cannot attend to the span keys)   (heads only)
+read_knockout: true
+self_per_item: 8                # SELF_c identities per item x arm in the full run (all in smoke)
+
+# ─── joint pass ─────────────────────────────────────────────────────────────────────
+k_list: [1, 2, 4, 8, 16, 32]
+n_random: 3                     # seeded random-k draws (uniform over 255 and layer-matched)
+split: crc32_parity             # half(sid) = crc32(sid) & 1; rank on the OTHER half
+
+# ─── frozen rules ───────────────────────────────────────────────────────────────────
+seed: 20260724
+n_boot: 10000
+identity:
+  self_tol_nats: 0.05           # |SELF_c - dG(S)| — a determinism tolerance, not the banked 1.0
+  all_tol_frac: 0.05            # |ALL - dG(S)| / |dG(S)|; per item the tolerance is max(all_tol_frac*|dG_S|, self_tol_nats) — the determinism floor
+  ko_gap_tol_nats: 0.05         # |logp_mref[L] - logp_S|: the materialised mask must be inert
+localisation:                   # H-W31a, top-k selected on the opposite half
+  k_primary: 16
+  recover_frac: 0.50            # TOP_16 must recover >= 50 % of dG(S)
+  over_random_frac: 0.30        # ... and beat RAND_16 by >= 30 points of dG(S), CI excluding 0
+  k_max: 32                     # DISTRIBUTED if no k <= 32 reaches recover_frac
+same_circuit:                   # H-W31c, C3pure vs P_patch sufficiency profiles
+  spearman_same: 0.80
+  jaccard_same: 0.50
+  spearman_different: 0.50
+global_heads:                   # H-W31d
+  long_item_tokens: 1024        # reply extends > 1024 tokens past the last span

@@ -36,6 +36,32 @@ from typing import Any, Iterable, Literal, Sequence
 
 import torch
 
+# Decoder-block resolution shared by ActivationSteerer, PositionReplacer and head_patch. Gemma-3
+# loads as `Gemma3ForConditionalGeneration` — the multimodal wrapper — so its decoder blocks are
+# NOT at model.layers or model.model.layers. Both `language_model` spellings are listed because
+# transformers exposes it at different depths across versions. Order matters: the most-nested
+# paths are tried last so a plain causal LM still resolves on the first probe.
+#
+# extract.py and steer.py MUST list identical paths — a mismatch would put the read and the write
+# on different blocks and mislabel every depth result. nla/src/p04_gate.py verifies they agree to
+# 1e-3; run it after touching either file. (Before 2026-09-07 PositionReplacer carried its own
+# four-path copy that lacked `model.model.language_model.layers`; one helper, three callers.)
+LAYER_PATHS = ("model.layers", "model.model.layers", "transformer.h",
+               "model.language_model.layers", "model.model.language_model.layers")
+
+
+def resolve_layers(model: Any) -> Any:
+    for path in LAYER_PATHS:
+        obj: Any = model
+        try:
+            for part in path.split("."):
+                obj = getattr(obj, part)
+            return obj
+        except AttributeError:
+            continue
+    raise AttributeError(f"cannot locate decoder layers on {type(model).__name__}")
+
+
 PositionSpec = Literal["last_prompt", "last_prefill", "all_reply", "all"] | Sequence[int]
 
 
@@ -109,27 +135,8 @@ class ActivationSteerer:
 
     # ── internals ────────────────────────────────────────────────────────────
     def _layers(self) -> Any:
-        """Same resolution order as extract.ActivationExtractor._layers — keep in sync."""
-        m = self.model
-        # Gemma-3 loads as `Gemma3ForConditionalGeneration` — the multimodal wrapper — so its
-        # decoder blocks are NOT at model.layers or model.model.layers. Both spellings are
-        # listed because transformers exposes `language_model` at different depths across
-        # versions. Order matters: the most-nested paths are tried last so a plain causal LM
-        # still resolves on the first probe.
-        #
-        # extract.py and steer.py MUST list identical paths — a mismatch would put the read and
-        # the write on different blocks and mislabel every depth result. nla/src/p04_gate.py
-        # verifies they agree to 1e-3; run it after touching either file.
-        for path in ("model.layers", "model.model.layers", "transformer.h",
-                     "model.language_model.layers", "model.model.language_model.layers"):
-            obj: Any = m
-            try:
-                for part in path.split("."):
-                    obj = getattr(obj, part)
-                return obj
-            except AttributeError:
-                continue
-        raise AttributeError(f"cannot locate decoder layers on {type(m).__name__}")
+        """Same resolution order as extract.ActivationExtractor._layers — see `resolve_layers`."""
+        return resolve_layers(self.model)
 
     def _hook(self, _module: Any, _inputs: Any, output: Any) -> Any:
         hidden = output[0] if isinstance(output, tuple) else output
@@ -238,17 +245,7 @@ class PositionReplacer:
         self._handle = layers[layer_index].register_forward_hook(self._hook)
 
     def _layers(self) -> Any:
-        m = self.model
-        for path in (("model", "layers"), ("model", "model", "layers"),
-                     ("transformer", "h"), ("model", "language_model", "layers")):
-            o = m
-            try:
-                for a in path:
-                    o = getattr(o, a)
-                return o
-            except AttributeError:
-                continue
-        raise AttributeError("could not locate decoder layers")
+        return resolve_layers(self.model)
 
     def _hook(self, _module: Any, _inputs: Any, output: Any) -> Any:
         hidden = output[0] if isinstance(output, tuple) else output
