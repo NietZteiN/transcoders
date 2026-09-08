@@ -38,6 +38,7 @@ import sys
 import time
 import zlib
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 import torch
@@ -63,6 +64,7 @@ from head_patch import (AttentionKnockout, Component, ComponentPatcher, MLP,  # 
 
 EXPERIMENT = "W31_head_localisation"
 ARMS = ("C3pure", "P_patch")
+NULL_ARMS = ("N_sibling", "N_foreign", "N_random")   # H-W35, built from banked vectors
 CFG_PATH = _NLA_ROOT / "configs" / "nla_heads.yaml"
 TAG = "[W31]"
 
@@ -189,13 +191,48 @@ def load_spans(out: Path) -> tuple[dict[str, list[dict]], np.ndarray, np.ndarray
     return by_item, z["h0"], z["c3"]
 
 
-def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray) -> dict[str, dict[int, torch.Tensor]]:
-    tg: dict[str, dict[int, torch.Tensor]] = {a: {} for a in ARMS}
-    for r in spans:
+def item_targets(spans: list[dict], h0: np.ndarray, c3: np.ndarray,
+                 arms: Sequence[str] = ARMS, pool: list[dict] | None = None,
+                 ) -> dict[str, dict[int, torch.Tensor]]:
+    """Per-arm {position: vector} for one item.
+
+    H-W35's null arms write DIFFERENT content at the SAME positions, so the route can be compared
+    against the correct-content arms. All three come from the banked `vectors.npz` — no AV/AR:
+
+      N_sibling  another span OF THE SAME ITEM      (right item, wrong span; banked whole-effect
+                                                     87.4 % of P_patch)
+      N_foreign  a span from a DIFFERENT item       (content, wrong item; 33.2 %)
+      N_random   a random unit direction            (no content; the operator alone, −365.59)
+
+    Draws are seeded per (snippet, span, arm) so the arm is reproducible and independent of corpus
+    order, and are refused rather than silently falling back when the draw is impossible — a
+    single-span item has no sibling, and `arm_guard` must see that as a missing position, not as a
+    position written with the wrong thing.
+    """
+    tg: dict[str, dict[int, torch.Tensor]] = {a: {} for a in arms}
+    n_spans = len(spans)
+    for si, r in enumerate(spans):
+        vec_self = int(r["vec"])
         for q in r["positions"]:
-            tg["C3pure"][q] = torch.from_numpy(c3[r["vec"]])
-            tg["P_patch"][q] = torch.from_numpy(h0[r["vec"]])
-    return tg
+            if "C3pure" in tg:
+                tg["C3pure"][q] = torch.from_numpy(c3[vec_self])
+            if "P_patch" in tg:
+                tg["P_patch"][q] = torch.from_numpy(h0[vec_self])
+            if "N_sibling" in tg and n_spans > 1:
+                rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#sib".encode()))
+                j = int(rng.integers(0, n_spans - 1))
+                j = j + 1 if j >= si else j                      # never the span's own vector
+                tg["N_sibling"][q] = torch.from_numpy(h0[int(spans[j]["vec"])])
+            if "N_foreign" in tg and pool:
+                rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#for".encode()))
+                cand = [p for p in pool if p["snippet_id"] != r["snippet_id"]]
+                if cand:
+                    tg["N_foreign"][q] = torch.from_numpy(h0[int(cand[int(rng.integers(0, len(cand)))]["vec"])])
+            if "N_random" in tg:
+                rng = np.random.default_rng(SEED + zlib.crc32(f"{r['snippet_id']}#{si}#rnd".encode()))
+                v = rng.standard_normal(h0.shape[1]).astype(np.float32)
+                tg["N_random"][q] = torch.from_numpy(v / (np.linalg.norm(v) + 1e-12))
+    return {a: t for a, t in tg.items() if t}
 
 
 class Host:
@@ -257,6 +294,7 @@ def stage_sweep(args: argparse.Namespace, cfg: dict, out: Path) -> int:
     trc = Path(args.traces or _PROJ / f"data/nla/p0/trace_llr/{args.model}/traces.jsonl")
     traces = {t["snippet_id"]: t for t in map(json.loads, open(trc))}
     sids = _select_pairs(args, by_item)
+    pool = [r for rs in by_item.values() for r in rs]      # H-W35 foreign draws
     host = Host(args, cfg, knockout=args.read_knockout)
     single_layers = _layer_range(args.layers) if args.layers else (
         _layer_range(cfg["smoke_layers"]) if args.smoke else host.sweep_layers)
@@ -273,15 +311,17 @@ def stage_sweep(args: argparse.Namespace, cfg: dict, out: Path) -> int:
         tr = traces[sid]
         pids, rids = tr["l1b_prompt_ids"], tr["l0_reply_ids"]
         T = len(pids) + len(rids)
-        targets = item_targets(by_item[sid], h0, c3)
-        span_keys = sorted(targets["C3pure"])
+        targets = item_targets(by_item[sid], h0, c3, args.arm_list, pool)
+        span_keys = sorted(next(iter(targets.values())))
 
         host.rep.set_targets(None); host.patcher.set_patches(None)
         cU = host.patcher.record()
         logp_U = host.logp(pids, rids)
         host.patcher.stop_recording()
 
-        for arm in ARMS:
+        for arm in args.arm_list:
+            if arm not in targets:
+                continue          # arm_guard: a draw that could not be made is absent, not zero
             tg = targets[arm]; n_pos = len(tg)
             host.rep.set_targets(tg); host.patcher.set_patches(None)
             cS = host.patcher.record()
@@ -365,6 +405,7 @@ def stage_joint(args: argparse.Namespace, cfg: dict, out: Path) -> int:
     by_item, h0, c3 = load_spans(out)
     trc = Path(args.traces or _PROJ / f"data/nla/p0/trace_llr/{args.model}/traces.jsonl")
     traces = {t["snippet_id"]: t for t in map(json.loads, open(trc))}
+    pool = [r for rs in by_item.values() for r in rs]
     host = Host(args, cfg, knockout=False)
     all_comps = components(host.sweep_layers, cfg["n_heads"])
     k_list = [int(k) for k in cfg["k_list"]]
@@ -382,10 +423,12 @@ def stage_joint(args: argparse.Namespace, cfg: dict, out: Path) -> int:
             print(f"{TAG} wall-clock stop after {ii} items", flush=True); break
         tr = traces[sid]
         pids, rids = tr["l1b_prompt_ids"], tr["l0_reply_ids"]
-        targets = item_targets(by_item[sid], h0, c3)
+        targets = item_targets(by_item[sid], h0, c3, args.arm_list, pool)
         host.rep.set_targets(None); host.patcher.set_patches(None)
         cU = host.patcher.record(); logp_U = host.logp(pids, rids); host.patcher.stop_recording()
-        for arm in ARMS:
+        for arm in args.arm_list:
+            if arm not in targets:
+                continue
             tg = targets[arm]; n_pos = len(tg)
             host.rep.set_targets(tg); host.patcher.set_patches(None)
             cS = host.patcher.record(); logp_S = host.logp(pids, rids, n_pos); host.patcher.stop_recording()
@@ -492,7 +535,7 @@ def score(hrows: list[dict], jrows: list[dict], cfg: dict) -> dict:
         "passes": (self_max <= tol and not all_fail and ko_max <= ident["ko_gap_tol_nats"])}
 
     profiles, top16 = {}, {}
-    for arm in ARMS:
+    for arm in sorted({r["arm"] for r in hrows}):
         R = [r for r in hrows if r["arm"] == arm]
         if not R:
             continue
@@ -644,6 +687,8 @@ def main() -> int:
     ap.add_argument("--no-repair", action="store_true")
     ap.add_argument("--layers", default=None, help="single-component layer range, e.g. 45-47")
     ap.add_argument("--read-knockout", action="store_true")
+    ap.add_argument("--arms", default=None,
+                    help="comma-separated subset; default C3pure,P_patch. H-W35 nulls: N_sibling,N_foreign,N_random")
     ap.add_argument("--self-per-item", type=int, default=None)
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--score-only", action="store_true")
@@ -660,6 +705,10 @@ def main() -> int:
         args.max_spans_per_item = int(cfg["max_spans_per_item"])
     if args.self_per_item is None:
         args.self_per_item = int(cfg["self_per_item"])
+    args.arm_list = tuple(a.strip() for a in args.arms.split(",")) if args.arms else ARMS
+    bad = [a for a in args.arm_list if a not in ARMS + NULL_ARMS]
+    if bad:
+        print(f"{TAG} REFUSED: unknown arms {bad}"); return 2
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
 
     if args.score_only:
