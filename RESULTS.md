@@ -1,6 +1,6 @@
 # Results — master index
 
-*Last updated: 2026-09-07 · generated from the 124 dated entries in [`log/`](log/); every number here
+*Last updated: 2026-09-08 · generated from the 126 dated entries in [`log/`](log/); every number here
 is quoted from the entry that produced it.*
 
 This is a reading index over the experiment ledger, not a replacement for it. Each row names the
@@ -407,6 +407,42 @@ is a concentrated positive contribution net of a diffuse drag. The one predictio
 global-vs-local necessity was expected to **widen** on long items and does not (+0.270 vs +0.296,
 n = 11).
 
+### 5.7 H-W35 — is that a circuit, or just a road? (`W35-INTERMEDIATE`)
+
+H-W31's arms all carried the *same* content, so it could not tell "a circuit that carries identifier
+meaning" from "where anything written at these positions arrives". H-W35 writes **different content
+at the same 1,459 positions** and compares routes. Job 383160, 93,660 forwards, identity gate exact.
+
+| content written | dG_S | Spearman vs `C3pure` | Jaccard top-16 |
+|---|---|---|---|
+| `P_patch` — same content, raw | +41.52 | 0.838 | 0.78 |
+| `N_sibling` — same item, other span | +37.98 | **0.847** | 0.68 |
+| `N_foreign` — different item | +12.99 | **0.743** | 0.60 |
+| `N_random` — no content | −298.96 | **0.283** | 0.19 |
+
+**Route similarity is monotone in content distance.** The frozen rule needed ρ ≥ 0.80 to call the
+heads generic; 0.743 misses it, so the verdict is `W35-INTERMEDIATE` — **and the pre-registered prior
+(`W35-GENERIC`) was wrong.** These are neither a content-blind dump nor a semantic circuit but a
+**content-sensitive transport path**, used in proportion to how much a write resembles the true
+clean state.
+
+H-W31's localisation survives with its description corrected: eight components still carry 60 %, but
+*"these heads carry identifier meaning"* is no longer available — a wrong-item activation, carrying
+entirely the wrong meaning, still uses 60 % of the same top-16. The `N_random` arm is what makes the
+0.743 interpretable: the metric demonstrably reaches 0.28 on this corpus, and that arm's top-8 is led
+by `L46H7`/`L46H0`, which appear in no content arm's top-8.
+
+Two follow-ups came out of the banked data rather than a new run. **Necessity discriminates about
+twice as hard as sufficiency** for this question (`C3pure` vs `N_foreign`: 0.396 on `nec` against
+0.743 on `suf`), which is why the dose experiment H-W39 pre-registers `nec` as primary. And
+**H-W36a** asked whether the 1.7 % NLA shortfall is just reconstruction error: ρ(gap, cos) =
+**+0.019** [−0.243, +0.299] → `W36-NOT-RECONSTRUCTION`, but on a predictor with sd **0.0017**, so it
+is a fired rule rather than a finding. Its real yield was unplanned — **the item-level shortfall is
+positive on only 29 of 60 items**, i.e. noise, while the *component-level* residue is CI-clearing,
+because the component contrast is paired within one forward pass and the aggregate difference is not.
+So the residue claim rests only on the paired measurement.
+
+
 ## 6. Coverage — what the corpus has and has not been asked
 
 ### 6.1 A stimulus fact discovered while writing this document (2026-09-07)
@@ -437,7 +473,21 @@ Two consequences, neither previously recorded:
    (`a`, `b`, `uepoi`) do not, so **1,327 L3 spans carry an `adversarial` label on code containing
    no decoy.**
 
-Filed as [`log/nla-harness/2026-09-07_l3-is-l1-not-l1b.md`](log/nla-harness/2026-09-07_l3-is-l1-not-l1b.md).
+Filed as [`log/nla-harness/2026-09-07_l3-is-l1-not-l1b.md`](log/nla-harness/2026-09-07_l3-is-l1-not-l1b.md),
+and confirmed span-by-span the next day (H-W33). Classifying every span by *what the tier did to that
+identifier* rather than by the name's shape, with a control that classifies **1,233 of 1,233** L1b
+renames as `adversarial`:
+
+| the 1,703 L3 spans labelled `adversarial` are actually | n |
+|---|---|
+| identifiers the **flattening introduced** (no L0 original at all) | **1,169** |
+| renames **excluded** from adversarial on L1b evidence | 522 |
+| renames **positively confirmed** as L1's nonsense rename | 12 |
+| **actually adversarial** | **0** |
+
+The frozen rule nonetheless returns `W33-UNRESOLVED`, because its positive test needs the JavaScript
+L1 pairing that H-W28 refused — the language holding 1,327 of the mislabels is the one that cannot
+supply confirmation. The 1.0000 exclusion fraction is reported as a labelled post-hoc reading.
 
 ### 6.2 What has actually been measured on L3
 
@@ -528,11 +578,13 @@ exit non-zero, and pre-registration with frozen thresholds.
 
 ## 8. Open questions, ranked by value per GPU-hour
 
-1. ~~H-W31~~ **done 2026-09-07** (§5.6). Successors, all cheap: **H-W35** — are the top-8 heads
-   specific to this write, or the general arrival point for any prompt edit? (ablate with no write;
-   this is the control the localisation needs before it is called a mechanism). **H-W36** — the
-   residue predicts anisotropic AR reconstruction error, computable from the banked vectors with no
-   GPU. **H-W37** — is L34M transport or re-normalisation?
+1. ~~H-W31~~ **done** (§5.6) · ~~H-W35~~ **done** (§5.7) · ~~H-W36a~~ **done** (§5.7) ·
+   ~~H-W28~~ **done** (§6.4) · ~~H-W33~~ **done** (§6.1). Live successors: **H-W39** (running) — is
+   the content→route gradient smooth or does it snap? **H-W35d** — the magnitude counterpart of the
+   rank result, now unblocked. **H-W36b** — does the reconstruction error lie along what `L41H4`
+   reads? Its motivation is *restored* by H-W35: the heads are not generic. **H-W37** — is `L34M`
+   transport or re-normalisation? **H-W40** — make `introduced` a first-class span category.
+   **H-W34** — JavaScript L1 pairings cannot be validated from inside this corpus.
 2. ~~H-W28~~ **done 2026-09-07** (§6.4). Successor: **H-W34** — L1·javascript cannot be repaired
    from inside this corpus; only the obfuscation generator, which did not travel to this host, could
    settle it. And **H-W33** — reclassify L3 spans by what the tier did, now that a validated L2→L3
