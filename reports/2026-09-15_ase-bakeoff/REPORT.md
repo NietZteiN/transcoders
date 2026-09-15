@@ -21,28 +21,32 @@
 
 ## 1. The table — every method, one line
 
-Sorted by family: references, controls, CodeSteer, our prompt arms, our residual-stream arms, the oracle ceiling. **Pass@1** is the headline; **Δ vs unsteered** is the paired gain over the renamed code with no intervention; **parse rate** is the share of replies the paper's parser could read; **acc. among parsed** is Pass@1 ÷ parse rate — a crude conditional accuracy that separates *answering more often* from *answering better*.
+**`NLA` marks our arms.** **`NLA·write`** = a latent write through the NLA harness (`PositionReplacer`, CodeLlama layer 7, renamed-identifier token positions, β = 1); `NLA·prompt` = our text-only baselines, same harness, no write. Everything else is theirs or a reference. *No arm here uses a trained verbalizer/reconstructor pair — that arm (`ar_role`) is deferred, see §4.*
 
-| # | method | family | what it does | Pass@1 | Δ vs unsteered | 95 % CI | parse rate | acc. among parsed | job | note |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | `original_unsteered` | reference | Original (un-renamed) code, no intervention | **0.558** | +0.025 | [-0.134, +0.188] | 0.760 | 0.733 | 399863 | renaming costs only +0.025 here |
-| 2 | `unsteered` | reference | Renamed code, no intervention | **0.532** | — | — | 0.902 | 0.590 | 399522 | — |
-| 3 | `codesteer_beta0` | control | CodeSteer with β_post = 0 (identity) | **0.599** | +0.067 | [-0.082, +0.212] | 0.817 | 0.733 | 399523 | sets the ±0.14 resolution |
-| 4 | `rand_prior_beta0` | control | random prior with β_post = 0 (identity) | **0.599** | +0.067 | [-0.083, +0.213] | 0.817 | 0.733 | 399524 | same 0.5991 as above |
-| 5 | `codesteer` | CodeSteer | README-exact: slice-hybrid prior, level-2 post-hoc, β_post 0.8, layers 24–31, all heads | **0.608** | +0.076 | [-0.081, +0.233] | 0.838 | 0.726 | 400250 | H-R2a comparator |
-| 6 | `codesteer_auto` | CodeSteer | as above + Eq. 10 head calibration (top-4 heads/layer) | **0.576** | +0.044 | [-0.087, +0.175] | 0.863 | 0.668 | 400251 | −0.032 vs all-heads |
-| 7 | `rand_prior` | control | CodeSteer machinery with a random attention prior, β 0.8 | **0.585** | +0.053 | [-0.086, +0.192] | 0.861 | 0.680 | 400252 | H-R2b |
-| 8 | `uniform_prior` | control | CodeSteer machinery with a uniform prior, β 0.8 | **0.597** | +0.065 | [-0.092, +0.211] | 0.815 | 0.732 | 400253 | scores like everything else |
-| 9 | `prompt` | ours · prompt | warning text prepended: "identifiers may be misleading…" | **0.634** | +0.101 | [-0.038, +0.233] | 0.836 | 0.758 | 399686 | best of ours in H-R2a |
-| 10 | `prompt_types` | ours · prompt | warning + declared type and AST role of every renamed identifier, as text | **0.426** | -0.106 | [-0.246, +0.036] | 0.633 | 0.674 | 401536 | format collapse: parse 0.63 |
-| 11 | `erasure` | ours · residual | leave-one-out mean-difference vector added at layer 7 span positions | **0.576** | +0.044 | [-0.124, +0.201] | 0.829 | 0.695 | 399688 | ≈ foreign |
-| 12 | `foreign` | ours · residual | another snippet's span state written at layer 7 | **0.574** | +0.041 | [-0.110, +0.196] | 0.962 | 0.596 | 399687 | H-R6b comparator |
-| 13 | `combined` | ours · residual | erasure at layer 7 + CodeSteer β 0.8 | **0.544** | +0.012 | [-0.123, +0.147] | 0.868 | 0.626 | 400254 | worst steered arm |
-| 14 | `ridge_map` | ours · residual | reduced-rank ridge map decoy-state → clean delta, fit on 98 other snippets (λ 100, rank 256) | **0.601** | +0.069 | [-0.091, +0.223] | 0.939 | 0.641 | 401537 | H-R6a: MAP-NOT-BETTER |
-| 15 | `role_proto` | ours · residual | clean-state prototype of other snippets with the same declared type + AST role, written at layer 7 | **0.650** | +0.118 | [-0.035, +0.271] | 0.998 | 0.651 | 401535 | best non-oracle arm; parse 0.998 |
-| 16 | `swap_oracle` | ceiling | the item's own clean (original-code) layer-7 state written at the span positions | **0.735** | +0.203 | [+0.061, +0.344] | 0.883 | 0.833 | 399685 | only arm outside the noise floor |
+`Δ` is paired vs `unsteered`; `parse` = share of replies the paper's parser could read; `acc|p` = Pass@1 ÷ parse — crude conditional accuracy, separating *answering more often* from *answering better*.
 
-**Noise floor.** Rows 3–4 are the paper's steering machinery with β = 0 — nothing is steered, only the decoder is re-run — and they score +0.067 over `unsteered`. Any effect smaller than about **±0.14** (the width of that CI) is indistinguishable from re-running the decoder. Every row except the oracle sits inside it.
+| # | method | type | what it does | Pass@1 | Δ [95 % CI] | parse | acc\|p | note |
+|---|---|---|---|--:|---|--:|--:|---|
+| 1 | `original_unsteered` | ref | un-renamed code, no intervention | **0.558** | +0.025 [−0.134, +0.188] | 0.76 | 0.73 | renaming costs only +0.025 |
+| 2 | `unsteered` | ref | renamed code, no intervention | **0.532** | — | 0.90 | 0.59 | the baseline |
+| 3 | `codesteer_beta0` | ctrl | CodeSteer, β_post = 0 (identity) | **0.599** | +0.067 [−0.082, +0.212] | 0.82 | 0.73 | sets the ±0.14 floor |
+| 4 | `rand_prior_beta0` | ctrl | random prior, β_post = 0 (identity) | **0.599** | +0.067 [−0.083, +0.213] | 0.82 | 0.73 | identical to row 3 |
+| 5 | `codesteer` | CodeSteer | slice prior, level-2 post-hoc, β 0.8, L24–31 | **0.608** | +0.076 [−0.081, +0.233] | 0.84 | 0.73 | **H-R2a comparator** |
+| 6 | `codesteer_auto` | CodeSteer | + Eq. 10 head calibration, top-4/layer | **0.576** | +0.044 [−0.087, +0.175] | 0.86 | 0.67 | −0.032 vs all heads |
+| 7 | `rand_prior` | ctrl | their machinery, random prior, β 0.8 | **0.585** | +0.053 [−0.086, +0.192] | 0.86 | 0.68 | H-R2b |
+| 8 | `uniform_prior` | ctrl | their machinery, uniform prior, β 0.8 | **0.597** | +0.065 [−0.092, +0.211] | 0.82 | 0.73 | prior is inert |
+| 9 | `prompt` | **NLA·prompt** | one-line "identifiers may mislead" warning | **0.634** | +0.101 [−0.038, +0.233] | 0.84 | 0.76 | best of ours in H-R2a |
+| 10 | `prompt_types` | **NLA·prompt** | warning + every identifier's type and role, as text | **0.426** | −0.106 [−0.246, +0.036] | 0.63 | 0.67 | format collapse |
+| 11 | `erasure` | **NLA·write** | leave-one-out mean-difference vector | **0.576** | +0.044 [−0.124, +0.201] | 0.83 | 0.70 | ≈ `foreign` |
+| 12 | `foreign` | **NLA·write** | another snippet's span state | **0.574** | +0.041 [−0.110, +0.196] | 0.96 | 0.60 | H-R6b comparator |
+| 13 | `combined` | **NLA·write** | `erasure` + CodeSteer β 0.8 | **0.544** | +0.012 [−0.123, +0.147] | 0.87 | 0.63 | worst steered arm |
+| 14 | `ridge_map` | **NLA·write** | learned decoy→clean map, 98 held-out snippets (λ 100, r 256) | **0.601** | +0.069 [−0.091, +0.223] | 0.94 | 0.64 | H-R6a |
+| 15 | `role_proto` | **NLA·write** | clean prototype, same declared type + AST role | **0.650** | +0.118 [−0.035, +0.271] | 1.00 | 0.65 | best non-oracle |
+| 16 | `swap_oracle` | **NLA·write** · ceiling | the item's *own* clean layer-7 state | **0.735** | +0.203 [**+0.061, +0.344**] | 0.88 | 0.83 | only arm clearing the floor |
+
+<sub>Job ids, in row order: 399863 · 399522 · 399523 · 399524 · 400250 · 400251 · 400252 · 400253 · 399686 · 401536 · 399688 · 399687 · 400254 · 401537 · 401535 · 399685.</sub>
+
+**Noise floor.** Rows 3–4 are the paper's machinery with β = 0 — nothing steered, only the decoder re-run — and they still score +0.067. Any effect below about **±0.14** is indistinguishable from re-running the decoder. Every row except the oracle sits inside it.
 
 ## 2. Verdicts (rules frozen before the runs)
 
