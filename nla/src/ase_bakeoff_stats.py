@@ -3,6 +3,18 @@
 Pre-registered: log/nla-harness/2026-09-14_steering-bakeoff-prereg.md (+ arms and residual amendments).
 
 Primary statistic is Pass@1 case-weighted by THEIR definition: sum_i p_i * n_i / sum_i n_i over snippets i.
+
+H-R9 RE-SCORE (2026-09-15, log/nla-harness/2026-09-15_pass1-decoding-correction.md). `pass@1` as written by
+ase_steer_run.py is "run 1 got this case right" -- one sampled reply, since the arms decode with
+do_sample=True at T 0.7. `--scoring cn` re-scores the SAME banked rows with the Chen et al. c/n estimator
+instead: accuracy = mean over cases AND over all 3 runs. Same expectation, ~sqrt(3) less sampling noise, and
+it needs the truth labels, which the per-arm jsonl does not carry -- hence --packs. Everything downstream of
+`load()` is scoring-agnostic (it consumes {snippet: (score, n_cases)}), so the contrasts, seeds, pairing and
+bootstrap are byte-identical between the two modes; only the per-snippet score changes. The frozen re-read
+rule from that entry: the H-R2a/H-R6 verdicts are re-read on c/n ONLY if the beta=0 identity arms come within
++-0.05 of `unsteered` (i.e. the noise floor really was sampling noise); otherwise the c/n pass is descriptive
+and the pass@1 verdicts stand. That gate is evaluated here and stamped into the output as
+`H_R9.floor_gate_passes`.
 Every contrast is PAIRED per snippet (both arms restricted to the snippets they share) and bootstrapped
 over snippets (cluster bootstrap, N_BOOT 10 000, seed 20260724), resampling snippets and recomputing the
 case-weighted difference each draw. Nothing here pools cases across snippets as if independent.
@@ -41,16 +53,55 @@ CONTROLS = ("codesteer_beta0", "rand_prior_beta0")     # identity steering: the 
 MATCH_TOL = 0.05
 
 
-def load(path: Path) -> dict[str, tuple[float, int]]:
-    """{snippet: (pass@1, n_cases)}; refuses duplicate snippets (a resumed run that double-wrote)."""
+def load_truth(paths) -> dict[str, dict[str, bool]]:
+    """{snippet: {case_id: expected_bool}} from the case packs, for --scoring cn.
+
+    The renamed and original packs carry the SAME cases with the same labels (functional equivalence is
+    execution-validated upstream), so they may be merged; a genuine disagreement is a corpus fault and stops
+    the run rather than silently picking one.
+    """
+    out: dict[str, dict[str, bool]] = {}
+    for path in paths:
+        for l in open(path):
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            m = {c["case_id"]: bool(c["expected_bool"]) for c in r["pack"].get("cases", [])}
+            if r["snippet"] in out and out[r["snippet"]] != m:
+                raise SystemExit(f"{path}: truth labels for {r['snippet']} disagree with an earlier pack")
+            out[r["snippet"]] = m
+    return out
+
+
+def load(path: Path, scoring: str = "pass1",
+         truth: dict[str, dict[str, bool]] | None = None) -> dict[str, tuple[float, int]]:
+    """{snippet: (score, n_cases)}; refuses duplicate snippets (a resumed run that double-wrote).
+
+    `pass1` reads the banked pass@1 field (run 1 only, their definition). `cn` recomputes accuracy over
+    cases x runs from the banked per-run predictions -- an unparsed case stays wrong, exactly as in the
+    runner, because `pred.get(c)` returns None and None != True/False.
+    """
     out: dict[str, tuple[float, int]] = {}
     for l in open(path):
         if not l.strip():
             continue
         r = json.loads(l)
-        if r["snippet"] in out:
-            raise SystemExit(f"{path}: duplicate snippet {r['snippet']}")
-        out[r["snippet"]] = (float(r["pass@1"]), int(r["n_cases"]))
+        sid = r["snippet"]
+        if sid in out:
+            raise SystemExit(f"{path}: duplicate snippet {sid}")
+        if scoring == "pass1":
+            out[sid] = (float(r["pass@1"]), int(r["n_cases"]))
+            continue
+        if truth is None or sid not in truth:
+            raise SystemExit(f"{path}: --scoring cn needs truth labels for {sid} (pass --packs)")
+        tr = truth[sid]
+        if len(tr) != int(r["n_cases"]):
+            raise SystemExit(f"{path}: {sid} has {r['n_cases']} cases but the packs give {len(tr)}")
+        runs = r["runs"]
+        if not runs:
+            raise SystemExit(f"{path}: {sid} has no runs to re-score")
+        acc = float(np.mean([[run["pred"].get(c) == tr[c] for c in tr] for run in runs]))
+        out[sid] = (acc, int(r["n_cases"]))
     return out
 
 
@@ -99,18 +150,27 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dir", required=True, help="bakeoff dir with <arm>.jsonl")
     ap.add_argument("--original", required=True, help="H-R1 original-condition rows (gate/original.jsonl)")
+    ap.add_argument("--scoring", choices=("pass1", "cn"), default="pass1",
+                    help="pass1 = their run-1 Pass@1 (default, the registered statistic); "
+                         "cn = accuracy over cases x all runs (H-R9 re-score)")
+    ap.add_argument("--packs", nargs="*", default=[],
+                    help="case packs carrying expected_bool; required for --scoring cn")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    if args.scoring == "cn" and not args.packs:
+        raise SystemExit("--scoring cn needs --packs (the jsonl does not carry truth labels)")
+    truth = load_truth(args.packs) if args.scoring == "cn" else None
     D = Path(args.dir)
     known = ("unsteered",) + STEERED + CONTROLS
-    arms = {p.stem: load(p) for p in sorted(D.glob("*.jsonl")) if p.stem in known}
+    arms = {p.stem: load(p, args.scoring, truth) for p in sorted(D.glob("*.jsonl")) if p.stem in known}
     if (skipped := [p.name for p in D.glob("*.jsonl") if p.stem not in known]):
         print(f"[stats] ignoring non-arm files in {D}: {skipped}")
-    orig = load(Path(args.original))
+    orig = load(Path(args.original), args.scoring, truth)
     if "unsteered" not in arms:
         raise SystemExit("no unsteered.jsonl: every contrast is paired against it")
     uns = arms["unsteered"]
-    st: dict = {"experiment": "R2_bakeoff", "n_boot": N_BOOT, "seed": SEED, "arms_present": sorted(arms),
+    st: dict = {"experiment": "R2_bakeoff", "n_boot": N_BOOT, "seed": SEED, "scoring": args.scoring,
+                "arms_present": sorted(arms),
                 "n_snippets": {k: len(v) for k, v in arms.items()}, "summary": []}
     st["case_weighted_pass1"] = {k: cw(np.array([x[0] for x in v.values()]),
                                        np.array([x[1] for x in v.values()], dtype=float)) for k, v in arms.items()}
@@ -163,6 +223,13 @@ def main() -> int:
                    "verdict": "LATENT-BEATS-PROMPT" if d["mean"] > 0 and d["ci95"][0] > 0 else "PROMPT-SUFFICES"}
     if r6:
         st["H_R6"] = r6
+    # H-R9: is the noise floor sampling noise? (frozen in the 2026-09-15 correction entry)
+    floors = {a: st["vs_unsteered"][a]["mean"] for a in CONTROLS if a in st.get("vs_unsteered", {})}
+    if floors:
+        st["H_R9"] = {"scoring": args.scoring, "floor_arms": floors, "tol": MATCH_TOL,
+                      "floor_gate_passes": all(abs(v) <= MATCH_TOL for v in floors.values()),
+                      "rule": "re-read the H-R2a/H-R6 verdicts on this scoring only if the beta=0 identity "
+                              "arms land within +-0.05 of unsteered; otherwise descriptive only"}
     # summary
     st["summary"].append(f"original(subset) {st['original_on_subset']:.4f} · " + " · ".join(
         f"{a} {st['case_weighted_pass1'][a]:.4f}" for a in ["unsteered"] + [x for x in STEERED if x in arms]))
@@ -185,6 +252,10 @@ def main() -> int:
             d = st["H_R6"][k]
             st["summary"].append(f"H-R6{k} {d['verdict']}" + (f": {lbl} = {d['mean']:+.4f} {np.round(d['ci95'], 4).tolist()}"
                                                               if "mean" in d else ""))
+    if "H_R9" in st:
+        g = st["H_R9"]
+        st["summary"].append(f"H-R9 scoring={g['scoring']} floor_gate={'PASSES' if g['floor_gate_passes'] else 'FAILS'} "
+                             f"({', '.join(f'{k} {v:+.4f}' for k, v in g['floor_arms'].items())}; tol +-{MATCH_TOL})")
     for a in CONTROLS:
         if a in st["vs_unsteered"]:
             d = st["vs_unsteered"][a]
