@@ -8,8 +8,8 @@
 |---|---|
 | Subject model | `codellama/CodeLlama-7b-Instruct-hf` (the only permitted model on which the ASE-2026 protocol showed renaming damage; see H-R1) |
 | Stimuli | 50 HumanEval-X Java programs, adversarially renamed with the ASE-2026 renamer; 11.8 boolean cases per program (the first 50 `PACKS-PAIRED` snippets of the paper's Zenodo release) |
-| Runtime | the paper's own `SteeredCausalLM` (raw prompt, greedy, 3 sampled runs per program), so every arm — theirs and ours — goes through one decoder and one parser |
-| Metric | case-weighted Pass@1: a case counts as correct if the first run predicts its T/F label; an unparsed reply counts as wrong |
+| Runtime | the paper's own `SteeredCausalLM` (raw prompt, its own sampling defaults `do_sample=True`, T 0.7, top_p 1.0, `torch.manual_seed(20260724)`, 3 runs per program), so every arm — theirs and ours — goes through one decoder and one parser |
+| Metric | **case-weighted Pass@1 — i.e. accuracy of one sampled reply.** Per program, `pass@k` = share of its boolean cases that *any* of the first k runs got right, so `pass@1` is just "run 1 predicted this case's T/F label"; an unparsed reply counts as wrong. Across programs it is case-weighted, Σ pass1ᵢ·nᵢ / Σ nᵢ. Not the Chen et al. c/n estimator: three runs exist per program but the headline uses only the first, so it is noisier than averaging all three. `pass@2`/`pass@3` are in the jsonl and are *not* accuracy — "any of k right" is a ceiling |
 | Statistics | paired per program, cluster bootstrap over programs, N_BOOT 10 000, seed 20260724, 95 % CIs; the H-R2a verdict reads on a Bonferroni α/3 interval |
 | Our writes | `PositionReplacer` at CodeLlama layer 7, `h[p] ← ‖h[p]‖·unit(v)`, on the renamed-identifier token positions |
 | CodeSteer | README-exact level-2 post-hoc steering, β_post 0.8, layers 24–31, effect gate live |
