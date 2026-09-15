@@ -84,7 +84,15 @@ PAPER_CFG = dict(enabled_levels=[2], prior="slice_hybrid", n_bins=12, binning="e
                  beta_bias=0.0, beta_post=0.8, lambda_attn=1.0, lambda_mlp=1.0,
                  head_subset_mode="none", head_mask_apply_to="both")
 STEER_LAST_N_LAYERS = 8                    # README `--steer-last-n-layers 8`
-ATTN_ARMS = ("codesteer", "codesteer_auto", "rand_prior", "uniform_prior", "ast_prior", "combined")
+# `codesteer_beta0` is the IDENTITY-FLOOR control: their steering machinery with beta_post=0, where
+# `level2_post` returns attn_probs unchanged. It is in ATTN_ARMS so it takes the same split-prefill code
+# path AND the same effect gate as `codesteer` -- the gate is the positive check that it really is the
+# identity (l2_effective_calls must be 0, where `codesteer` gets 4096/4096). It enters no verdict; it
+# measures the sampling + code-path variance the other arms' differences are read against (H-R9's +-0.05
+# floor gate, log/nla-harness/2026-09-15_cn-rescore-results.md). In the raw-prompt bake-off this arm came
+# from the 2026-09-14 beta fault rather than by request; here it is asked for explicitly.
+ATTN_ARMS = ("codesteer", "codesteer_auto", "rand_prior", "uniform_prior", "ast_prior", "combined",
+             "codesteer_beta0")
 
 
 class Level2Effect:
@@ -297,7 +305,8 @@ def main() -> int:
     ap.add_argument("--model-id", default="codellama/CodeLlama-7b-Instruct-hf")
     ap.add_argument("--arm", required=True,
                     choices=("ridge_map", "role_proto", "prompt_types", "unsteered", "codesteer", "codesteer_auto", "rand_prior", "uniform_prior", "ast_prior",
-                             "prompt", "swap_oracle", "foreign", "erasure", "combined"))
+                             "prompt", "swap_oracle", "foreign", "erasure", "combined",
+                             "codesteer_beta0"))
     # residual (NLA-style) arms -- see RESIDUAL ARMS below
     ap.add_argument("--packs-orig", default=None, help="original-condition packs (same snippets)")
     ap.add_argument("--manifest", default="/scratch/juno/jvl210002/ase2026/rename_manifest.jsonl")
@@ -345,12 +354,16 @@ def main() -> int:
     if args.arm in ATTN_ARMS:
         cfg = dict(PAPER_CFG)
         cfg["prior"] = {"codesteer": "slice_hybrid", "codesteer_auto": "slice_hybrid", "rand_prior": "rand",
-                        "combined": "slice_hybrid", "uniform_prior": "uniform", "ast_prior": "ast"}[args.arm]
+                        "combined": "slice_hybrid", "uniform_prior": "uniform", "ast_prior": "ast",
+                        "codesteer_beta0": "slice_hybrid"}[args.arm]
         if cfg["prior"] == "rand":
             cfg["rand_seed"] = SEED
         if args.arm == "codesteer_auto":
             cfg["head_subset_mode"] = "auto"       # paper Eq. 10: calibrated top-k heads per layer
-        assert cfg["beta_post"] > 0.0, "beta_post=0 makes level-2 steering the identity (2026-09-14 fault)"
+        if args.arm == "codesteer_beta0":
+            cfg["beta_post"] = 0.0             # deliberate: see ATTN_ARMS note. The assert below guards
+        else:                                  # against the fault re-entering the REAL steering arms.
+            assert cfg["beta_post"] > 0.0, "beta_post=0 makes level-2 steering the identity (2026-09-14 fault)"
         sc = SteeringConfig(**cfg)
         lm.set_steering_config(sc)
         print(f"{TAG} steering ON: {cfg}", flush=True)
