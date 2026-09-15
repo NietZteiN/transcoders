@@ -63,6 +63,10 @@ HOSTS = {
     "qwen7b":   ("Qwen/Qwen2.5-7B-Instruct", 20),     # banked corpus only — see --model guard
     "gemma12b": ("google/gemma-3-12b-it", 32),
     "llama8b":  ("meta-llama/Llama-3.1-8B-Instruct", 16),
+    # Phase B host (docs/nla_multilayer_scoping.md): 34 layers, d 2560. The default layer is the
+    # vendored preset 2L/3 = 22; the multi-layer work (nla/src/nla_train.py) trains its own
+    # pairs at every layer and addresses them explicitly, so this entry only names the model.
+    "gemma4b":  ("google/gemma-3-4b-it", 22),
 }
 DEFAULT_HOST = "gemma12b"
 # AR (reconstructor) checkpoints, per host. Reconstructing into a different model's residual
@@ -132,10 +136,21 @@ def gloss(terms: list[str]) -> str:
     return "code whose identifiers are about " + (", ".join(terms) if terms else "unnamed values")
 
 
-def load_pairs(limit: int | None, rng: random.Random) -> list[dict]:
-    """L0/L1b pairs sharing a snippet_id, with ground truth on the L1b side."""
+BANKED_DATASETS = ("dataset_a", "dataset_b")     # the 60-item pool every banked result was measured on
+
+
+def load_pairs(limit: int | None, rng: random.Random,
+               datasets: tuple[str, ...] = BANKED_DATASETS) -> list[dict]:
+    """L0/L1b pairs sharing a snippet_id, with ground truth on the L1b side.
+
+    `datasets` is OPT-IN and defaults to the banked pair. This function is imported by ~10 scripts and
+    widening its default would silently change the 60-item set under every banked comparison in the
+    programme -- every `dG_S_*`, every gate, every 0.05-nat identity tolerance. `dataset_c` (257
+    HumanEval-X snippets, built by build_dataset_c.py) is therefore requested explicitly by the callers
+    that want the larger pool, and never inherited.
+    """
     rows = []
-    for ds in ("dataset_a", "dataset_b"):
+    for ds in datasets:
         p = _PROJ / "data" / "stimuli" / ds / f"{ds}.jsonl"
         if p.exists():
             rows += [json.loads(l) for l in open(p) if l.strip()]

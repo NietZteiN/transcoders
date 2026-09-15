@@ -27,7 +27,7 @@ datasets:
     path: data/stimuli/dataset_b/            # TODO populate
 
 # Per-item behavioral tables from Papers 2–3 to JOIN against feature/attention measures.
-# This join is a Phase-0 prerequisite for HT1/HT3/HT6 (see docs/CHECKLIST.md).
+# This join is a Phase-0 prerequisite for HT1/HT3/HT6 (see CHECKLIST.md).
 behavioral_tables:
   path: data/behavioral/                     # TODO import from Papers 2–3 artifacts
   columns_needed: [snippet_id, model, tier, accuracy, hci, isf, dispatcher_state_count]

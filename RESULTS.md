@@ -43,7 +43,7 @@ artifacts of the readout rather than results.
 
 ## 2. Charter status — the committed instrument (E1–E8)
 
-`docs/CHECKLIST.md` records `Status: Phase 0 in progress (scaffold built, smoke passing; no science
+`CHECKLIST.md` records `Status: Phase 0 in progress (scaffold built, smoke passing; no science
 runs yet)`. **All eight hypotheses HT1–HT8 are `open`; not one has moved.** None of E1–E8 has a
 single completed method sub-box, and the thread folders they call for
 (`log/sae-features/`, `log/steering/`, `log/attribution-graphs/`, `log/state-binding/`,

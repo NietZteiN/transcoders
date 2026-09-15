@@ -1,5 +1,5 @@
 # E1 — Semantic-capture feature diff under adversarial renaming (L0 vs L1b).
-# Tests HT1 (docs/CHECKLIST.md). Flagship, Tier 1. Forward-pass only → fits one A6000.
+# Tests HT1 (CHECKLIST.md). Flagship, Tier 1. Forward-pass only → fits one A6000.
 #
 # This config drives ONLY the activation-extraction stage (src/extract_activations.py):
 # collect residual-stream SAE-input activations at identifier positions on matched L0/L1b

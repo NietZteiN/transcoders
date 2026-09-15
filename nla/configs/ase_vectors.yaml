@@ -1,0 +1,52 @@
+# H-R6 (ASE) — oracle-free meaning-installing vectors for the CodeLlama-7B bake-off.
+# Frozen at prereg time (log/nla-harness/2026-09-14_better-vector-prereg.md). A change after the
+# first pool capture is a new dated config, not an edit. Consumed by nla/src/ase_pool_capture.py,
+# nla/src/ase_roles.py, nla/src/ase_vectors.py and the `ridge_map` / `role_proto` / `prompt_types`
+# arms of nla/src/ase_steer_run.py.
+
+seed: 20260724
+layer: 7                 # carried from the residual-arms amendment; NOT tuned here
+
+paths:
+  ase_root: /scratch/juno/jvl210002/ase2026
+  packs_renamed: /scratch/juno/jvl210002/ase2026/packs_renamed_humaneval_java.jsonl
+  packs_orig: /scratch/juno/jvl210002/ase2026/packs_humaneval_java.jsonl
+  manifest: /scratch/juno/jvl210002/ase2026/rename_manifest.jsonl
+  test_subset: /scratch/juno/jvl210002/ase2026/gate/packs_orig_subset.jsonl   # the 50 bake-off snippets
+  pool: /scratch/juno/jvl210002/ase2026/pool_codellama7b_L7.pt
+  vectors: /scratch/juno/jvl210002/ase2026/vectors_codellama7b_L7.pt
+  fit_report: /scratch/juno/jvl210002/ase2026/vectors_codellama7b_L7.fit.json
+
+split:
+  # TEST = the 50 bake-off snippets; FIT POOL = every other aligned snippet in packs_renamed.
+  # Nothing from a test snippet (original prompt, clean state, name) enters any vector written to it.
+  test_from: test_subset
+  min_pool_snippets: 60    # abort the fit (exit 3) if fewer than this align
+
+ridge_map:
+  # Reduced-rank ridge regression of the clean-minus-decoy delta on the centred decoy state:
+  #   delta_hat = (h1b - mu) A + c ;  v = h1b + delta_hat   (A = 0 recovers `erasure`, the mean delta)
+  # lambda and rank chosen by grouped 5-fold CV over the POOL only (groups = snippets), criterion =
+  # mean cosine(delta_hat, delta) on held-out spans. The mean-delta model is fold-scored the same way.
+  lambdas: [1.0e+2, 1.0e+3, 1.0e+4, 1.0e+5, 1.0e+6]   # signed exponent: PyYAML parses 1.0e2 as a string
+  ranks: [4, 16, 64, 256]
+  cv_folds: 5
+  apply_per_token: false   # one vector per span (span-mean input), written at every decoy token
+  # PRE-GPU GATE: the selected map must beat the mean-delta model on held-out pool cosine by
+  # >= this margin, else the arm is NOT run (the map has learned nothing beyond `erasure`).
+  gate_cos_margin: 0.05
+
+role_proto:
+  # v = mean clean state (h0_mean) over POOL spans sharing the tag; fallback hierarchy recorded
+  # per span, and the share of spans resolved at each level is reported.
+  tag_levels: [type_role, type, kind]      # kind = method | variable
+  min_bucket: 5
+
+prompt_types:
+  # Prompting baseline for the meaning-installing arms: one line per renamed identifier with its
+  # declared type and inferred role, inserted after the WARN line of the `prompt` arm. No true names.
+  line: "- `{decoy}`: declared `{type}`, role: {role}"
+
+stats:
+  n_boot: 10000
+  match_tol: 0.05

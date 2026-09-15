@@ -1,6 +1,6 @@
 # transcoders — SAE + Transcoder Feature & Circuit Analysis
 
-*Last updated: 2026-09-07*
+*Last updated: 2026-09-09*
 
 **Instrument 3** of the mechanistic follow-up study *"Opening the Black Box of
 Obfuscated-Code Comprehension."* Papers 1–3 established *behaviorally* how code
@@ -17,7 +17,7 @@ Sibling instruments: attention reallocation (Instrument 1) and Natural Language
 Autoencoders (Instrument 2, gear in [`nla/`](nla/)). All three map onto Schulte's
 Block Model. The experiment menu (E1–E8) lives in
 [`docs/experiment_menu.md`](docs/experiment_menu.md); the hypotheses ledger and task
-tracker in [`docs/CHECKLIST.md`](docs/CHECKLIST.md).
+tracker in [`CHECKLIST.md`](CHECKLIST.md).
 
 ## Results
 
@@ -53,10 +53,15 @@ conda env create -f environment.yml   # exact pins in environment.lock.txt
 
 ## What is not in the repo
 
-- **`nla/data/checkpoints/`** (~25 GB): the released verbalizer/reconstructor pair
-  [`kitft/nla-qwen2.5-7b-L20-ar`](https://huggingface.co/kitft/nla-qwen2.5-7b-L20-ar) and
-  [`kitft/nla-qwen2.5-7b-L20-av`](https://huggingface.co/kitft/nla-qwen2.5-7b-L20-av) —
-  download from Hugging Face into `nla/data/checkpoints/{ar,av}/`.
+- **NLA checkpoints** (`$HF_HOME`): the released Gemma-3-12B-it verbalizer/reconstructor pair
+  [`kitft/nla-gemma3-12b-L32-av`](https://huggingface.co/kitft/nla-gemma3-12b-L32-av) and
+  [`kitft/nla-gemma3-12b-L32-ar`](https://huggingface.co/kitft/nla-gemma3-12b-L32-ar), resolved
+  through `nla/src/steer_run.py` (`_hf_snapshot`). The earlier `kitft/nla-qwen2.5-7b-L20-{ar,av}`
+  pair under `nla/data/checkpoints/` is retained on disk but **not run** — since 2026-09-02 no
+  Chinese-origin model is executed in this project (`--model qwen7b` refuses without
+  `--allow-banked-host`, and the trainer/gate refuse any `qwen` host outright).
+- **Phase B pairs** (`data/nla/ml/gemma4b/L{K}/{av,ar}`, 34 layers of Gemma-3-4B-it) are trained
+  locally by `nla/src/nla_train.py`; they are large artifacts and are never committed.
 - **`data/` contents**: activation caches and dictionaries are regenerable but
   expensive; provenance for every source is in [`data/DATA_SOURCES.md`](data/DATA_SOURCES.md).
 - **`nla/vendor/nla-repo/`** is a git submodule of the upstream
@@ -64,5 +69,6 @@ conda env create -f environment.yml   # exact pins in environment.lock.txt
   repo — run `git submodule update --init` if you cloned without `--recurse-submodules`.
 
 ## Changelog
+- **2026-09-09** — "What is not in the repo" now names the Gemma-3-12B NLA pair actually in use and the Phase B per-layer pairs; the Qwen pair is listed as retained-but-not-run under the model constraint.
 - **2026-09-07** — Added [`RESULTS.md`](RESULTS.md) and linked the published summary artifact.
 - **2026-08-04** — Initial public release of the repo scaffold.

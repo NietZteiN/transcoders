@@ -1,0 +1,43 @@
+# Phase B — the pre-registered multi-layer gate on the 34 trained Gemma-3-4B-it pairs.
+# Consumed by nla/src/nla_ml_gate.py. Rules are the ones frozen in
+# docs/nla_multilayer_scoping.md §4 and restated verbatim in
+# log/nla-harness/2026-09-09_multilayer-train-prereg.md; the training config (what the pairs are)
+# is nla/configs/nla_ml.yaml and is not duplicated here.
+#
+# Frozen 2026-09-09 before any pair was trained. A change after the gate first runs on trained
+# pairs is a new dated config, never an edit.
+
+seed: 20260724
+n_boot: 10000
+experiment: ML_multilayer_gate
+
+train_config: nla/configs/nla_ml.yaml   # host, paths.root, n_layers, d_model
+gate_subdir: gate                       # <paths.root>/gate/{vectors,rows,stats}
+
+# W-harness anchoring, unchanged from nla_heads.yaml (H-W23 repaired: 471 spans / 60 items on
+# the 12B; the 4B has the same tokenizer so the same spans resolve).
+max_spans_per_item: 8
+repair: true
+max_new_read: 180                       # nla_cycle.MAX_NEW_READ, every AV read in this project
+
+# Per-pair liveness (prereg "Per-pair checks" a–d). A pair failing ANY is PAIR-DEAD at that layer:
+# reported, excluded from the multi-layer arms, never silently kept.
+liveness:
+  av_holdout_gap_min: 0.0               # (a) holdout_gap_permuted_minus_real > 0
+  ar_fve_min: 0.20                      # (b) fve >= 0.20 AND > shuffled AND > train-mean baseline
+  max_no_tag_frac: 0.10                 # (c) on the 96 greedy check reads
+  max_cjk_frac: 0.10                    # (c)
+  cycle_real_gt_other: true             # (d) cos_cycle_mean > cos_other_mean
+
+# Layer sets. The verdict is read on `primary` only; the others are secondary and labelled so.
+sets:
+  primary: [8, 22, 24]                  # from H-W31 CONCENTRATED at global heads (scoping §5 row 1)
+  depth: [8, 17, 26]                    # pre-H-W31 default, 25/50/75 % depth
+  all: all                              # every live layer
+
+rules:
+  gate0_ratio_min: 0.25                 # M_c3 / G_prompt_swap >= 0.25, CI excluding 0
+  hm2_frac_of_c3: 0.30                  # M_edit - M_random >= 0.30 * M_c3, CI excluding 0
+  self_tol_nats: 1.0                    # mean |dG_SELF| (as banked in nla_tiers.py)
+  hm3_ratio_min: 0.80                   # S_c3_l / S_swap_l CI lower bound >= 0.80 ...
+  hm3_confirm_frac: 0.80                # ... at >= 80 % of live layers -> CONFIRM; median < 0.80 -> REFUTE

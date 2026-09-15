@@ -346,6 +346,102 @@ def test_replacer_tracks_positions_across_the_decode_boundary(toy):
     r.close()
 
 
+def test_replacer_beta_one_is_byte_identical_to_the_banked_replacement(toy):
+    """H-S5/H-S6 nested identity: beta defaults to 1.0 and MUST NOT perturb any banked result.
+
+    `torch.equal`, not `allclose` — every W-family and Phase-B number was produced by the beta=1.0
+    path, so "equal within fp32 rounding" is not good enough to leave them uncontested.
+    """
+    m, h = toy
+    v2, v4 = torch.randn(8), torch.randn(8)
+    out = {}
+    for label, kwargs in (("default", {}), ("explicit", {"beta": 1.0})):
+        r = PositionReplacer(m, 0, **kwargs)
+        r.set_targets({2: v2, 4: v4})
+        out[label] = m(h.clone())
+        assert r.beta == 1.0
+        r.close()
+    assert torch.equal(out["default"], out["explicit"])
+    # ...and still the norm-matched replacement the class documents.
+    for p, v in ((2, v2), (4, v4)):
+        assert torch.allclose(out["default"][0, p], h[0, p].norm() * v / v.norm(), atol=1e-6)
+
+
+def test_replacer_beta_zero_is_a_value_noop_that_still_counts_positions(toy):
+    """beta=0 must be a VALUE no-op and NOT a position no-op — the distinction is load-bearing.
+
+    `arm_guard.paired` refuses a contrast whose two arms wrote different position counts, and
+    nla_ml_gate / nla_layer_sweep / nla_heads all raise on a `n_positions_written` mismatch. A beta
+    that skipped the write would silently corrupt every one of those guards, so the count is asserted
+    alongside the value. (`set_targets(None)` remains the no-op that writes nothing.)
+    """
+    m, h = toy
+    r = PositionReplacer(m, 0, beta=0.0)
+    r.set_targets({2: torch.randn(8), 4: torch.randn(8)})
+    out = m(h.clone())
+    assert torch.allclose(out, h, atol=1e-6), "beta=0 changed the hidden state"
+    assert r.n_positions_written == 2, "beta=0 must still COUNT the positions it wrote"
+    r.close()
+
+
+def test_replacer_beta_half_rotates_toward_the_target_and_keeps_the_norm(toy):
+    """beta in (0,1) is a ROTATION at fixed norm, strictly between unit(h) and unit(v).
+
+    Renormalising after the mix is what makes a small beta a small rotation rather than a small
+    vector — otherwise k stacked partial writes would shrink the residual instead of steering it.
+    """
+    m, h = toy
+    v = torch.randn(8)
+    r = PositionReplacer(m, 0, beta=0.5)
+    r.set_targets({3: v})
+    out = m(h.clone())
+    got, ref = out[0, 3], h[0, 3]
+    assert torch.allclose(got.norm(), ref.norm(), atol=1e-5), "beta=0.5 did not preserve the norm"
+    u_got, u_h, u_v = got / got.norm(), ref / ref.norm(), v / v.norm()
+    cos_to_v, cos_to_h = float(u_got @ u_v), float(u_got @ u_h)
+    assert cos_to_v > float(u_h @ u_v), "beta=0.5 moved no closer to the target"
+    assert cos_to_h > float(u_h @ u_v), "beta=0.5 threw away the host's own direction"
+    # The written value is exactly the renormalised midpoint of the two unit vectors.
+    mid = 0.5 * u_h + 0.5 * u_v
+    assert torch.allclose(u_got, mid / mid.norm(), atol=1e-5)
+    assert torch.equal(out[0, [0, 1, 2, 4, 5]], h[0, [0, 1, 2, 4, 5]])
+    r.close()
+
+
+def test_replacer_beta_outside_the_unit_interval_is_refused(toy):
+    """Fail loudly: an out-of-range beta would silently extrapolate past the target direction."""
+    m, _ = toy
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValueError, match="beta"):
+            PositionReplacer(m, 0, beta=bad)
+    r = PositionReplacer(m, 0)
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValueError, match="beta"):
+            r.set_beta(bad)                        # the sweep's path must validate too
+    assert r.beta == 1.0, "a refused set_beta must leave the old value in place"
+    r.close()
+
+
+def test_replacer_set_beta_takes_effect_on_the_next_forward(toy):
+    """One replacer, many betas — the sweep mutates beta between forwards rather than re-hooking.
+
+    A second PositionReplacer on the same layer would leave two live hooks double-writing, so this
+    path is the only supported way to sweep beta; it has to actually change the written value.
+    """
+    m, h = toy
+    v = torch.randn(8)
+    r = PositionReplacer(m, 0, beta=1.0)
+    r.set_targets({3: v})
+    full = m(h.clone())[0, 3].clone()
+    r.set_beta(0.25)
+    r.set_targets({3: v})                          # re-arm: set_targets also resets the cursor
+    part = m(h.clone())[0, 3]
+    u_v = v / v.norm()
+    assert float(part / part.norm() @ u_v) < float(full / full.norm() @ u_v)
+    assert torch.allclose(part.norm(), h[0, 3].norm(), atol=1e-5)
+    r.close()
+
+
 def test_no_grad_decorator_still_belongs_to_generate_steered():
     """Regression: PositionReplacer was first inserted BETWEEN @torch.no_grad() and the function
     it decorates, silently transferring the decorator to the class and leaving generate_steered

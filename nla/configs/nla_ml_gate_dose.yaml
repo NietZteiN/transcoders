@@ -1,0 +1,40 @@
+# H-C4 dose-response gate — score ONE layer (L7) of a dose-point pair.
+# Consumed by nla/src/nla_ml_gate.py. Identical to nla/configs/nla_ml_gate.yaml in every rule and
+# threshold; the ONLY differences are `sets` (one layer, so the multi-layer arms are vacuous) and
+# this header. Rules frozen in log/nla-harness/2026-09-12_dose-response-prereg.md.
+#
+# Frozen 2026-09-12 before any dose point was trained.
+#
+# NOTE: the run must pass --root <dose root> so the gate reads that dose point's L7/{av,ar} and
+# writes its vectors under that root. Without --root it would read the BANKED pair and silently
+# re-score the 100 % run three times.
+
+seed: 20260724
+n_boot: 10000
+experiment: ML_multilayer_gate
+
+train_config: nla/configs/nla_ml.yaml   # host, paths.root, n_layers, d_model
+gate_subdir: gate
+
+max_spans_per_item: 8
+repair: true
+max_new_read: 180
+
+liveness:
+  av_holdout_gap_min: 0.0
+  ar_fve_min: 0.20
+  max_no_tag_frac: 0.10
+  max_cjk_frac: 0.10
+  cycle_real_gt_other: true
+
+# One layer: H-M1/H-M2's multi-layer arms are vacuous here (as at 12B L32), and the quantity this
+# experiment reads is the per-item S_c3_L7 in gate_rows.jsonl, not the set-level verdict label.
+sets:
+  primary: [7]
+
+rules:
+  gate0_ratio_min: 0.25
+  hm2_frac_of_c3: 0.30
+  self_tol_nats: 1.0
+  hm3_ratio_min: 0.80
+  hm3_confirm_frac: 0.80

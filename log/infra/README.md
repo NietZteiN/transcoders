@@ -43,4 +43,4 @@ discipline machinery (seeds, GPU pinning, provenance). Experiments consume what 
 
 ## Doc / results links
 - [`../../src/README.md`](../../src/README.md) — module map + post-review behavior.
-- [`../../docs/CHECKLIST.md`](../../docs/CHECKLIST.md) — Phase-0 boxes this thread is burning down.
+- [`../../CHECKLIST.md`](../../CHECKLIST.md) — Phase-0 boxes this thread is burning down.

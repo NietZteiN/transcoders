@@ -230,19 +230,53 @@ class PositionReplacer:
     defensible magnitude. That is also what removes alpha from Experiment W's design -- there is
     no coefficient to sweep, which is the point.
 
+    `beta` (added 2026-09-12 for H-S5/H-S6; DEFAULT 1.0 == the behaviour above, unchanged):
+
+        h[p] <- ||h[p]|| * unit((1 - beta) * unit(h[p]) + beta * unit(v_p))
+
+    The paragraph above stays right for a write at ONE layer. It stops being right for a write at
+    MANY layers, which is what the multi-layer gate and the layer sweep do: a full replacement at k
+    layers overwrites the span position's residual trajectory k times, so the position stops
+    computing between the writes. Measured consequence (`layer_sweep_stats.json`, 33 live 4B layers):
+    from k=1 to k=33 the CEILING arm `swap` -- the raw clean state, the most any write could be worth
+    -- loses 14.50 nats [-20.31, -8.67], MORE than the NLA arm `c3` loses (11.70), while `random`
+    degrades -15 -> -2655. That is host damage rather than channel corruption, and a coefficient is
+    what lets every layer nudge the position while the position keeps computing.
+
+    beta = 1.0 keeps the written value bit-identical to the replacement (the `(1 - beta)` term
+    vanishes, leaving unit(v) exactly as before), so every banked result stands. beta = 0.0 is a
+    VALUE no-op that still writes -- and so still counts -- every target position. That asymmetry is
+    deliberate: `arm_guard.paired` refuses a contrast whose two arms wrote different position counts
+    and three callers raise on a `n_positions_written` mismatch, so a beta that skipped positions
+    would corrupt those guards silently. For a no-op that writes nothing, use `set_targets(None)`.
+
     Position arithmetic follows `ActivationSteerer` exactly: absolute indices over the whole
     sequence, tracked across the prefill call and each single-token decode call.
     """
 
-    def __init__(self, model: Any, layer_index: int):
+    def __init__(self, model: Any, layer_index: int, beta: float = 1.0):
         self.model = model
         self.layer_index = layer_index
+        self.beta = float(beta)
         self._targets: dict[int, torch.Tensor] = {}
         self._cursor = 0
         self.n_positions_written = 0
         layers = self._layers()
         assert 0 <= layer_index < len(layers), f"layer {layer_index} out of range"
+        self.set_beta(beta)
         self._handle = layers[layer_index].register_forward_hook(self._hook)
+
+    def set_beta(self, beta: float) -> None:
+        """Change the interpolation coefficient in place; `_hook` reads `self.beta` per forward.
+
+        Mutable by design: the H-S6 sweep needs one replacer per layer across many betas, and
+        constructing a second replacer on the same layer would leave TWO forward hooks firing on it
+        (the first is never removed), which double-writes silently.
+        """
+        beta = float(beta)
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError(f"beta must lie in [0, 1], got {beta!r}")
+        self.beta = beta
 
     def _layers(self) -> Any:
         return resolve_layers(self.model)
@@ -264,7 +298,19 @@ class PositionReplacer:
         V = torch.stack([self._targets[p].to(torch.float32) for _, p in local])   # [k, d]
         V = V / V.norm(dim=-1, keepdim=True).clamp_min(1e-12)
         norms = h.to(torch.float32).norm(dim=-1, keepdim=True)            # [b, k, 1]
-        new = (norms * V.to(hidden.device)[None]).to(hidden.dtype)
+        if self.beta == 1.0:
+            # Kept as its own branch, textually unchanged, so the default path is bit-identical to
+            # the pre-2026-09-12 replacement rather than merely equal to it within fp32 rounding.
+            new = (norms * V.to(hidden.device)[None]).to(hidden.dtype)
+        else:
+            # Interpolate on the UNIT SPHERE, then restore the local norm: the direction is the only
+            # thing the AR's output means, and the magnitude must stay the host's own at every layer.
+            # Renormalising after the mix (rather than scaling the sum) is what keeps a small beta a
+            # small ROTATION instead of a small vector, so k stacked writes do not shrink the state.
+            unit_h = h.to(torch.float32) / norms.clamp_min(1e-12)         # [b, k, d]
+            mix = (1.0 - self.beta) * unit_h + self.beta * V.to(hidden.device)[None]
+            mix = mix / mix.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+            new = (norms * mix).to(hidden.dtype)
         hidden = hidden.index_copy(1, idx, new)
         self.n_positions_written += len(local)
         if isinstance(output, tuple):

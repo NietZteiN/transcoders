@@ -263,11 +263,19 @@ class ComponentPatcher:
 # ── attention-read knockout ───────────────────────────────────────────────────
 
 def build_layer_mask(T: int, sliding: bool, window: int = SLIDING_WINDOW,
-                     device: Any = None) -> torch.Tensor:
-    """Bool `[1, 1, T, T]`, True = query q may attend key k. Mirrors `masking_utils`:
-    `causal_mask_function` is `kv <= q`; `sliding_window_overlay` adds `kv > q - window`."""
-    q = torch.arange(T, device=device)[:, None]
-    k = torch.arange(T, device=device)[None, :]
+                     device: Any = None, n_kv: int | None = None,
+                     q_offset: int = 0) -> torch.Tensor:
+    """Bool `[1, 1, Tq, Tk]`, True = query q may attend key k. Mirrors `masking_utils`:
+    `causal_mask_function` is `kv <= q`; `sliding_window_overlay` adds `kv > q - window`.
+
+    `n_kv` and `q_offset` (added 2026-09-13 for H-S18) support the DECODE case: with a KV cache a
+    forward carries Tq queries whose absolute positions start at `q_offset`, against `n_kv` keys.
+    The square prefill case is `n_kv=None, q_offset=0` and is unchanged, so every H-W31 number still
+    reproduces bit-identically.
+    """
+    Tk = T if n_kv is None else int(n_kv)
+    q = torch.arange(T, device=device)[:, None] + int(q_offset)
+    k = torch.arange(Tk, device=device)[None, :]
     m = k <= q
     if sliding:
         m = m & (k > q - window)
@@ -280,6 +288,18 @@ class AttentionKnockout:
     `set(layer, head, keys)` arms the hook; `set(layer, None, None, materialize_only=True)` installs
     the same mask with nothing knocked out — the reference every knockout score is taken against,
     because the materialised mask alone changes the sdpa kernel at that layer.
+
+    H-S18 (2026-09-13) adds two things the H-W31 design did not need, both additive:
+
+    * **`set_many({layer: [heads]})`** — knock out several heads across SEVERAL layers in one forward,
+      which a top-k attention-reallocation arm requires. `set()` is untouched, so H-W31 reproduces.
+      The `materialize_only` reference must be armed over **the same layer set** (`ref_layers=`),
+      because it is the materialised mask, not the knockout, that moves a layer off the flash kernel.
+    * **decode support** — the mask is built `[1, n_heads, Tq, Tk]` from `cache_position`, so the hook
+      survives `generate()`. The H-W31 docstring's refusal to track a position cursor still applies to
+      `ComponentPatcher` (a recorded cache is valid only at its own T); a knockout needs no recorded
+      tensor, only absolute key indices, so there is nothing to misalign — the keys are the prompt
+      positions and they do not move as tokens are appended.
     """
 
     def __init__(self, model: Any, layers: Sequence[int] = SWEEP_LAYERS, n_heads: int = N_HEADS,
@@ -290,6 +310,8 @@ class AttentionKnockout:
         self.layer: int | None = None
         self.head: int | None = None
         self.keys: list[int] = []
+        self.spec: dict[int, list[int]] = {}      # H-S18 multi-layer: L -> heads knocked at L
+        self.ref_layers: tuple[int, ...] = ()     # H-S18: layers to materialise for the reference
         self.materialize_only = False
         self.n_masks_applied = 0
         self._handles: list[Any] = []
@@ -309,31 +331,76 @@ class AttentionKnockout:
                 raise ValueError(f"head {head} out of range")
         self.layer, self.head = layer, head
         self.keys = sorted(int(k) for k in (keys or []))
+        self.spec = {}
+        self.ref_layers = (int(layer),) if (layer is not None and materialize_only) else ()
         self.materialize_only = materialize_only
+        self.n_masks_applied = 0
+
+    def set_many(self, spec: dict[int, Sequence[int]] | None, keys: Sequence[int] | None,
+                 materialize_only: bool = False,
+                 ref_layers: Sequence[int] | None = None) -> None:
+        """H-S18: knock out {layer: heads} across several layers at once, all sharing one key set.
+
+        `materialize_only=True` with `ref_layers` installs the same masks with nothing knocked out —
+        the only fair reference for a multi-layer arm, since each materialised layer leaves the flash
+        kernel whether or not anything is masked out.
+        """
+        self.layer = self.head = None
+        self.keys = sorted(int(k) for k in (keys or []))
+        self.materialize_only = bool(materialize_only)
+        if materialize_only:
+            self.spec = {}
+            self.ref_layers = tuple(int(L) for L in (ref_layers or ()))
+            bad = [L for L in self.ref_layers if L not in self.layers]
+        else:
+            if not spec or not self.keys:
+                raise ValueError("a multi-head knockout needs a non-empty spec and key set")
+            self.spec = {int(L): sorted(int(h) for h in hs) for L, hs in spec.items()}
+            self.ref_layers = tuple(sorted(self.spec))
+            bad = [L for L in self.spec if L not in self.layers]
+            for L, hs in self.spec.items():
+                for h in hs:
+                    if not 0 <= h < self.n_heads:
+                        raise ValueError(f"head {h} out of range at L{L}")
+        if bad:
+            raise KeyError(f"layer(s) {bad} have no knockout hook (hooked: {self.layers})")
         self.n_masks_applied = 0
 
     def clear(self) -> None:
         self.set(None, None, None)
 
-    def mask_for(self, L: int, T: int, device: Any = None) -> torch.Tensor:
-        m = build_layer_mask(T, sliding=not self.global_fn(L), window=self.window,
-                             device=device).expand(1, self.n_heads, T, T).clone()
-        if not self.materialize_only:
-            if max(self.keys) >= T:
-                raise ShapeMismatch(f"knockout key {max(self.keys)} >= T={T}")
-            m[0, self.head, :, self.keys] = False
+    def mask_for(self, L: int, T: int, device: Any = None, n_kv: int | None = None,
+                 q_offset: int = 0) -> torch.Tensor:
+        Tk = T if n_kv is None else int(n_kv)
+        m = build_layer_mask(T, sliding=not self.global_fn(L), window=self.window, device=device,
+                             n_kv=n_kv, q_offset=q_offset).expand(1, self.n_heads, T, Tk).clone()
+        heads = self.spec.get(L, []) if self.spec else ([self.head] if self.head is not None else [])
+        if not self.materialize_only and heads:
+            if max(self.keys) >= Tk:
+                raise ShapeMismatch(f"knockout key {max(self.keys)} >= n_kv={Tk}")
+            for h in heads:
+                m[0, h, :, self.keys] = False
         if not bool(m.any(-1).all()):
             raise RuntimeError("knockout emptied a query row — softmax would be NaN")
         return m
 
     def _hook(self, L: int) -> Callable:
         def hook(_module: nn.Module, args: tuple, kwargs: dict) -> tuple | None:
-            if L != self.layer:
+            active = (L == self.layer) or (L in self.spec) or (L in self.ref_layers)
+            if not active:
                 return None
             hs = kwargs["hidden_states"] if "hidden_states" in kwargs else args[0]
             if hs.dim() != 3 or hs.shape[0] != 1:
                 raise ShapeMismatch(f"L{L} knockout: expected [1, T, d], got {tuple(hs.shape)}")
-            m = self.mask_for(L, int(hs.shape[1]), device=hs.device)
+            Tq = int(hs.shape[1])
+            # DECODE: `cache_position` holds the absolute positions of THIS forward's queries, so the
+            # key length is its last entry + 1. Absent (or square prefill) -> the H-W31 square path.
+            cp = kwargs.get("cache_position")
+            n_kv = q_off = None
+            if cp is not None and int(cp[-1]) + 1 != Tq:
+                n_kv, q_off = int(cp[-1]) + 1, int(cp[0])
+            m = (self.mask_for(L, Tq, device=hs.device) if n_kv is None else
+                 self.mask_for(L, Tq, device=hs.device, n_kv=n_kv, q_offset=q_off))
             self.n_masks_applied += 1
             if "attention_mask" in kwargs or len(args) < 3:
                 return (args, {**kwargs, "attention_mask": m})

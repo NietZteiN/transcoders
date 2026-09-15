@@ -1,0 +1,87 @@
+# H-S5…H-S9 — can multi-layer NLA steering be made to work on Gemma-3-4B-it?
+# Consumed by nla/src/nla_beta_sweep.py. Rules are the ones frozen in
+# log/nla-harness/2026-09-12_beta-layerset-prereg.md and are restated here so the run is
+# reproducible from version control alone (CLAUDE.md §5 — no ad-hoc CLI hyperparameters).
+#
+# Frozen 2026-09-12 BEFORE the sweep first ran. A change after that is a new dated config,
+# never an edit to this one.
+#
+# The pairs themselves (host, paths.root, n_layers, d_model) are nla/configs/nla_ml.yaml and are
+# not duplicated here; the gate config that produced the banked vectors is nla/configs/nla_ml_gate.yaml.
+
+seed: 20260724
+n_boot: 10000
+experiment: S_beta_layerset
+
+train_config: nla/configs/nla_ml.yaml   # host, paths.root, n_layers, d_model
+gate_subdir: gate                       # <paths.root>/gate/{vectors,gate_rows.jsonl}
+out_subdir: gate/beta_sweep             # <paths.root>/gate/beta_sweep/
+
+# W-harness anchoring — identical to nla_ml_gate.yaml so select_pairs() yields the SAME
+# 60 items / 471 repaired spans as every other run in this family.
+max_spans_per_item: 8
+repair: true
+
+# Liveness reuses the gate's frozen per-pair rules (a)-(d); a PAIR-DEAD layer is never steered.
+liveness:
+  av_holdout_gap_min: 0.0
+  ar_fve_min: 0.20
+  max_no_tag_frac: 0.10
+  max_cjk_frac: 0.10
+  cycle_real_gt_other: true
+
+# All seven arms at every cell. `foreign` and `rt` are the point: nla_layer_sweep.py ran only
+# (c3, swap, edit, random), so the SPECIFIC component of the edit has never been measured
+# at more than one layer.
+arms: [edit, foreign, rt, c3, swap, random, self]
+
+# The interpolation coefficient this experiment adds to PositionReplacer:
+#   h[p] <- ||h[p]|| * unit((1-beta)*unit(h[p]) + beta*unit(v_p))
+# beta 1.0 == the banked full-replacement behaviour (nested identity gate 1).
+beta_ladder: [0.1, 0.2, 0.35, 0.5, 0.75, 1.0]
+
+# H-S5's SPEC-ranked top-k ladder.
+k_ladder: [1, 2, 4, 8, 16, 29]
+
+# Named layer sets. NONE is selected on an outcome variable.
+#   faithful      - fidelity CI-lower >= 0.80, frozen 2026-09-10_multilayer-gate-results.md
+#   band          - contiguous, same size as faithful
+#   spaced        - 12 depth-spaced live layers, computed at run time
+#   spec_top12    - split-half SPEC ranking, computed at run time
+#   coverage      - greedy max of the editable-span union, from span METADATA only, never any dG
+#   live_no_tail  - drops L30-L33 (swap <= 0.11, ratio <= 0.47 or undefined)
+#   all_live      - every live layer; the user's literal "all layers"
+sets:
+  faithful: [2, 3, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16]
+  band: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+  spaced: spaced12
+  spec_top12: spec_rank12
+  coverage: coverage12
+  live_no_tail: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                 21, 22, 23, 24, 25, 26, 27, 28, 29]
+  all_live: all
+
+rules:
+  # H-S5 — does the SPECIFIC effect add across layers? The 1.64 is not a guess: it is the ratio of
+  # editable-span unions, 185 spans at k=29 over 113 at k=1, i.e. what pure per-span additivity
+  # would give. Derived from the banked L{K}_spans.jsonl sidecars, stated in the prereg.
+  hs5_additive_ratio: 1.64
+  hs5_saturating_ratio: 1.25
+  # H-S6 — does beta repair the ceiling that multi-layer replacement breaks?
+  hs6_ceiling_k1_nats: 73.15        # banked k=1/beta=1 `swap`, layer_sweep_stats.json
+  hs6_repaired_frac: 0.95
+  # H-S7 — is the SELECTION OBJECTIVE worth anything? (H-S1 ranked by c3, not by the deployed arm.)
+  hs7_min_nats: 3.0
+  # H-S9 — the accuracy stage is GATED on the nats result and does not run otherwise.
+  hs9_gate_min_nats: 3.0
+  hs9_n_samples: 8
+  hs9_temperature: 0.8
+  hs9_top_p: 0.95
+
+identity:
+  beta1_tol_nats: 0.05              # gate 1 - beta=1 reproduces the banked gate rows
+  beta0_tol_nats: 0.05              # gate 2 - beta=0 is a VALUE no-op...
+  beta0_requires_same_positions: true   # ...but NOT a position no-op (arm_guard.paired depends on it)
+  self_tol_nats: 1.0                # gate 3 - as banked; has been exactly 0.000 since 2026-09-09
+  all_live_c3_banked_nats: 54.06    # gate 1b - the ALL-LIVE/beta=1 c3 cell
+  verify_layers_per_half: 3         # rankings come from banked rows; re-verify this many by forward

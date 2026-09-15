@@ -1464,7 +1464,7 @@ reports, and because several of them bound results quoted above.
 |---|---|
 | **This report** | `transcoders/reports/2026-08-26_nla-master/REPORT.md` |
 | Ledger entries (64) | `transcoders/log/nla-harness/YYYY-MM-DD_*.md` |
-| Thread summary + hypothesis ledger | `transcoders/log/nla-harness/README.md` · `transcoders/docs/CHECKLIST.md` |
+| Thread summary + hypothesis ledger | `transcoders/log/nla-harness/README.md` · `transcoders/CHECKLIST.md` |
 | Prior reports | `transcoders/reports/2026-08-{05,14,14,15,17}_*/REPORT.md` |
 | Worked examples + decompositions | `transcoders/reports/2026-08-26_full-results/RESULTS.md` |
 | B5 composed run | `transcoders/data/nla/b5/` · `nla/scripts/b5_autopilot.sh` · `nla/src/b5_gate.py` |

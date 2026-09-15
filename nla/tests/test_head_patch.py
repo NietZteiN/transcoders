@@ -295,3 +295,94 @@ def test_split_half_ranking_and_nulls():
     assert len(set(a)) == len(a)
     u = draw_uniform(pool, 32, np.random.default_rng(2))
     assert len(set(u)) == 32 and all(c in pool for c in u)
+
+
+# --- added 2026-09-13 for H-S18 (attention reallocation under generate) ----------------------------------------
+# Two additive extensions: multi-layer knockout (a top-k arm spans several layers) and decode masks (the
+# intervention must survive generate(), unlike ComponentPatcher which refuses by design).
+
+def test_build_layer_mask_decode_shape_and_causality():
+    from head_patch import build_layer_mask
+    # square prefill path is unchanged
+    sq = build_layer_mask(5, sliding=False)
+    assert sq.shape == (1, 1, 5, 5) and bool(sq[0, 0, 2, 2]) and not bool(sq[0, 0, 2, 3])
+    # decode: 1 query at absolute position 7, against 8 keys -> all of 0..7 visible
+    d = build_layer_mask(1, sliding=False, n_kv=8, q_offset=7)
+    assert d.shape == (1, 1, 1, 8) and bool(d[0, 0, 0, :].all())
+    # decode with a sliding window: only the last `window` keys are visible
+    w = build_layer_mask(1, sliding=True, window=3, n_kv=10, q_offset=9)
+    assert w.shape == (1, 1, 1, 10)
+    assert [int(i) for i in w[0, 0, 0].nonzero().flatten()] == [7, 8, 9]
+    # a chunk of queries mid-decode stays causal against the absolute offset
+    c = build_layer_mask(2, sliding=False, n_kv=6, q_offset=4)
+    assert bool(c[0, 0, 0, 4]) and not bool(c[0, 0, 0, 5]) and bool(c[0, 0, 1, 5])
+
+
+def test_set_many_knocks_several_layers_and_reference_matches_layer_set(toy):
+    from head_patch import AttentionKnockout
+    model, _ = toy
+    ko = AttentionKnockout(model, layers=(1, 2), n_heads=2, window=64, global_fn=lambda L: True)
+    try:
+        # keys 1,2 -- never position 0, which no query may lose (see the emptied-row guard test)
+        ko.set_many({1: [0], 2: [1]}, keys=[1, 2])
+        assert ko.ref_layers == (1, 2)
+        m1 = ko.mask_for(1, 4)
+        m2 = ko.mask_for(2, 4)
+        assert not bool(m1[0, 0, 3, 1]) and bool(m1[0, 1, 3, 1])   # only head 0 knocked at L1
+        assert not bool(m2[0, 1, 3, 2]) and bool(m2[0, 0, 3, 2])   # only head 1 knocked at L2
+        assert bool(m1[0, 0, 3, 0]) and bool(m1[0, 0, 3, 3])       # unknocked keys survive
+        # the reference materialises the SAME layers with nothing removed
+        ko.set_many(None, keys=[1, 2], materialize_only=True, ref_layers=(1, 2))
+        r1 = ko.mask_for(1, 4)
+        assert bool(r1[0, 0, 3, 1]) and bool(r1[0, 1, 3, 1])
+        assert ko.spec == {} and ko.ref_layers == (1, 2)
+    finally:
+        ko.close()
+
+
+def test_set_many_rejects_unhooked_layers_and_bad_heads(toy):
+    import pytest
+    from head_patch import AttentionKnockout
+    model, _ = toy
+    ko = AttentionKnockout(model, layers=(1,), n_heads=2, window=64, global_fn=lambda L: True)
+    try:
+        with pytest.raises(KeyError):
+            ko.set_many({9: [0]}, keys=[0])
+        with pytest.raises(ValueError):
+            ko.set_many({1: [5]}, keys=[0])
+        with pytest.raises(ValueError):
+            ko.set_many({1: [0]}, keys=[])          # a knockout needs keys
+    finally:
+        ko.close()
+
+
+def test_single_layer_set_still_behaves_exactly_as_before(toy):
+    """H-W31 reproducibility: set() must be untouched by the multi-layer path."""
+    from head_patch import AttentionKnockout
+    model, _ = toy
+    ko = AttentionKnockout(model, layers=(1,), n_heads=2, window=64, global_fn=lambda L: True)
+    try:
+        ko.set(1, 0, [1])
+        assert ko.spec == {} and ko.layer == 1 and ko.head == 0
+        m = ko.mask_for(1, 4)
+        assert not bool(m[0, 0, 3, 1]) and bool(m[0, 1, 3, 1])
+        ko.set(1, None, None, materialize_only=True)
+        assert bool(ko.mask_for(1, 4)[0, 0, 3, 1])
+    finally:
+        ko.close()
+
+
+def test_knocking_position_zero_raises_rather_than_producing_nan(toy):
+    """Query row 0 can attend ONLY key 0, so knocking key 0 empties it and softmax would be NaN.
+    The guard must refuse. Real span positions are never 0 (the chat template opens the sequence),
+    so this is a safety net, not a limitation -- but it must fire rather than return a bad mask."""
+    import pytest
+    from head_patch import AttentionKnockout
+    model, _ = toy
+    ko = AttentionKnockout(model, layers=(1,), n_heads=2, window=64, global_fn=lambda L: True)
+    try:
+        ko.set_many({1: [0]}, keys=[0])
+        with pytest.raises(RuntimeError, match="emptied a query row"):
+            ko.mask_for(1, 4)
+    finally:
+        ko.close()

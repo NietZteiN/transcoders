@@ -1,0 +1,53 @@
+# Phase C gate: our 12B L32 pair vs the released kitft/nla-gemma3-12b-L32, on the SAME 60 items /
+# 471 spans. Derived from nla_ml_gate.yaml; ONLY train_config and sets differ, so every threshold
+# is inherited unchanged and H-C1 is judged by the rules frozen in
+# log/nla-harness/2026-09-10_12b-budget-prereg.md (<=0.80 BUDGET-EXPLAINS / >=0.90 HOST-EXPLAINS).
+#
+# RUNNER MUST PASS --traces data/nla/p0/trace_llr/gemma12b/traces.jsonl (60 items, banked in the
+# W work). nla_ml_gate.py defaults to the 4B path, which would silently score this pair against
+# the WRONG host's replies.
+# Phase B — the pre-registered multi-layer gate on the 34 trained Gemma-3-4B-it pairs.
+# Consumed by nla/src/nla_ml_gate.py. Rules are the ones frozen in
+# docs/nla_multilayer_scoping.md §4 and restated verbatim in
+# log/nla-harness/2026-09-09_multilayer-train-prereg.md; the training config (what the pairs are)
+# is nla/configs/nla_ml.yaml and is not duplicated here.
+#
+# Frozen 2026-09-09 before any pair was trained. A change after the gate first runs on trained
+# pairs is a new dated config, never an edit.
+
+seed: 20260724
+n_boot: 10000
+experiment: ML_multilayer_gate
+
+train_config: nla/configs/nla_ml_12b.yaml   # 12B: host, paths.root (scratch), n_layers 48, d 3840
+gate_subdir: gate                       # <paths.root>/gate/{vectors,rows,stats}
+
+# W-harness anchoring, unchanged from nla_heads.yaml (H-W23 repaired: 471 spans / 60 items on
+# the 12B; the 4B has the same tokenizer so the same spans resolve).
+max_spans_per_item: 8
+repair: true
+max_new_read: 180                       # nla_cycle.MAX_NEW_READ, every AV read in this project
+
+# Per-pair liveness (prereg "Per-pair checks" a–d). A pair failing ANY is PAIR-DEAD at that layer:
+# reported, excluded from the multi-layer arms, never silently kept.
+liveness:
+  av_holdout_gap_min: 0.0               # (a) holdout_gap_permuted_minus_real > 0
+  ar_fve_min: 0.20                      # (b) fve >= 0.20 AND > shuffled AND > train-mean baseline
+  max_no_tag_frac: 0.10                 # (c) on the 96 greedy check reads
+  max_cjk_frac: 0.10                    # (c)
+  cycle_real_gt_other: true             # (d) cos_cycle_mean > cos_other_mean
+
+# Layer sets. The verdict is read on `primary` only; the others are secondary and labelled so.
+sets:
+  # 12B: only L32 is trained (L2/L7 descoped 2026-09-11 -- user: stop after one layer), so the
+  # 4B sets {8,22,24} / {8,17,26} cannot resolve. H-C1 needs only the PER-LAYER fidelity ratio
+  # S_c3/S_swap at L32, which the scorer reports for every live layer; naming this set `primary`
+  # is what makes Gate 0 be computed on it. H-C2 is NOT adjudicated.
+  primary: [32]
+
+rules:
+  gate0_ratio_min: 0.25                 # M_c3 / G_prompt_swap >= 0.25, CI excluding 0
+  hm2_frac_of_c3: 0.30                  # M_edit - M_random >= 0.30 * M_c3, CI excluding 0
+  self_tol_nats: 1.0                    # mean |dG_SELF| (as banked in nla_tiers.py)
+  hm3_ratio_min: 0.80                   # S_c3_l / S_swap_l CI lower bound >= 0.80 ...
+  hm3_confirm_frac: 0.80                # ... at >= 80 % of live layers -> CONFIRM; median < 0.80 -> REFUTE

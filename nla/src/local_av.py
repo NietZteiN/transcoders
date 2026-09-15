@@ -56,7 +56,7 @@ class LocalAV:
         self.tokenizer = self._c.tokenizer
         self.cfg = self._c.cfg
         self.model = AutoModelForCausalLM.from_pretrained(
-            str(checkpoint_dir), torch_dtype=dtype, device_map=device).eval()
+            str(checkpoint_dir), dtype=dtype, device_map=device).eval()
         self.device = self.model.device
         self.n_no_tags = 0
 

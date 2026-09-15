@@ -1,0 +1,27 @@
+### Target Date: 2026-09-14 (H-R2 pre-registration — the steering bake-off: can any method we can run match or surpass CodeSteer on its own protocol?)
+
+- **The user's goal, stated plainly:** test a variety of steering methods on a subset of tasks where we know how CodeSteer behaves, and see whether we match or surpass it. This entry freezes that comparison. It is **gated** on H-R1b: if adversarial renaming does not damage Llama-3.1-8B under their own protocol, no steering arm has anything to recover and this experiment is void (reported as `BAKEOFF-VOID-NO-DAMAGE`).
+- **Why the comparison is possible at all** (two findings from reading their artifact): `steering/backends/llama_backend.py` provides `install_llama_steering`, a generic Llama attention wrapper, so CodeSteer runs on **Llama-3.1-8B** — permitted here, unlike every model in their paper (Qwen2.5-7B/14B, DeepSeek-6.7B/V2-Lite). And `SlicingHybridPrior` extends **`ASTPrior`**, not the Joern-backed prior, while `obfuscation/main.py` forces `prior = "slice_hybrid"` for exactly our task profile — so their method needs only `javalang`, which is installed. **Joern is absent** from this host (their code hardcodes `/people/cs/x/xxr230000/bin/joern/joern-cli`) and is not required; `JoernSlicePrior` is a separate class we will not use, and this is recorded so no later reader mistakes our configuration for theirs.
+- **Subset (frozen):** the **first 50 snippets by snippet id** for which BOTH the original and renamed case packs built and which pass the amendment's `PACKS-PAIRED` correspondence check. First-by-id, not best-by-anything — no selection on difficulty, case count, or any outcome. If fewer than 40 qualify, the subset is reported as underpowered and the bake-off is descriptive only.
+- **Arms (8), all on Llama-3.1-8B, identical case packs, identical decoding (T = 0.7, top_p = 1.0, sampled, 3 runs), Pass@k case-weighted by their definition:**
+
+  | arm | what it isolates | code |
+  |---|---|---|
+  | `original` | the ceiling | — |
+  | `renamed_unsteered` | **the damage** (H-R1b gate) | — |
+  | `renamed_prompt` | prompting baseline — **mandatory** under CLAUDE.md §4 | ours |
+  | `renamed_codesteer` | their method, `slice_hybrid` prior | **theirs, unmodified** |
+  | `renamed_rand_prior` | their machinery, random target positions | theirs |
+  | `renamed_uniform_prior` | their machinery, uniform attention | theirs |
+  | `renamed_erasure` | our **training-free** LOO mean-difference vector | ours |
+  | `renamed_knockout` | attention knockout of the top heads | ours |
+
+- **What our trained NLA cannot contribute, declared up front:** the AV/AR pairs are Gemma-3-4B/12B trained on Python/JS residuals. There is no Llama-3.1-8B Java pair and training one is ~30+ GPU-h, so **the trained method is out of this bake-off**; only our training-free methods enter. Today's H-E14 result softens that: the oracle-free erasure vector beat the trained edit at every readable 4B layer, so the training-free arm is not a weak stand-in for our approach — on the evidence it *is* our approach.
+- **Hypotheses and frozen verdicts** (primary contrast is Pass@1, paired per snippet, cluster bootstrap over snippets, N_BOOT 10 000, seed 20260724):
+  - **H-R2a (the headline).** best-of-ours (`erasure`, `knockout`, `prompt`) − `codesteer`. **`SURPASS-CODESTEER`** if > 0 with the 95 % CI excluding 0 · **`MATCH-CODESTEER`** if the CI contains 0 **and** |difference| < 0.05 · **`BELOW-CODESTEER`** if < 0 with the CI excluding 0. Multiplicity: three of our arms are compared, so the CI for the selected best arm is reported **and** a Bonferroni-adjusted (α/3) interval is reported beside it; the verdict reads on the adjusted one.
+  - **H-R2b (their own control, and the finding with the widest reach).** `codesteer` − `rand_prior`. **`SLICE-MATTERS`** if > 0 with CI excluding 0 → their slice selection is load-bearing. **`SLICE-IRRELEVANT`** otherwise → *any* attention reallocation of that magnitude reproduces their gain, which would be a result about their paper and would make "matching CodeSteer" a much lower bar than it appears. I have no stake in which way this lands and it costs one extra arm.
+  - **H-R2c (restoration).** For every steered arm, their restoration ratio `(steered − unsteered) / (original − unsteered)`, reported with a CI. Their HumanEval-X identifier-renaming figure is **104.99 %** (40.20 → 78.30 against an original of 76.49).
+  - **Predictions, recorded now:** `SLICE-IRRELEVANT` (I expect the prior to matter less than the act of reallocating attention); `BELOW-CODESTEER` for our training-free arms on a task whose damage is lexical — their slice prior is aimed exactly at that, ours are not; and restoration ratios well under 100 % for everything of ours. Confidence low — **3 of 9 predictions today**, and both confident misses came from reasoning about plausibility rather than measuring.
+- **Setup:** ~50 snippets × 8 arms × 3 runs ≈ 1 200 generations of ~200 output tokens ⇒ **≈ 5 GPU-h** at the rate stage 2 will measure. One GPU, `--partition=h200,h100`. Packs from jobs 397925 (original) and 397969 (renamed); their steering configured through `steering.SteeringConfig` with `prior` swapped per arm and nothing else changed between the three arms that use their machinery.
+- **Results / verdict / observations:** to be filled by the results entry. Nothing here is a result.
+- **Next Steps:** `PACKS-PAIRED` check → H-R1a/H-R1b gate (~1 GPU-h) → this bake-off only if damage is present.

@@ -1,0 +1,76 @@
+# Phase B — NLA (AV + AR) pairs at EVERY layer of Gemma-3-4B-it (docs/nla_multilayer_scoping.md).
+# Consumed by nla/src/nla_train.py (stages corpus/extract/explain/sft_av/sft_ar/check) and
+# nla/src/nla_ml_gate.py. Frozen at prereg time (log/nla-harness/2026-09-08_multilayer-train-prereg.md);
+# a change after the first SFT submission is a new dated config, not an edit.
+#
+# Recipe source: nla/vendor/nla-repo (configs/TRAINING_NOTES.md, configs/actor_sft.sh,
+# configs/critic_sft.sh, configs/datagen/gemma3_12b_ultrafineweb_100k.yaml). Deviations are
+# marked `# DEV:` with the reason.
+
+seed: 20260724
+
+host:
+  model_id: google/gemma-3-4b-it
+  # text-only Gemma3ForCausalLM materialised from the multimodal snapshot by gemma_text.py.
+  # Gemma3ForCausalLM.from_pretrained on the raw snapshot loads NOTHING (2026-09-08).
+  text_ckpt: data/nla/ml/gemma4b/host_text
+  n_layers: 34
+  d_model: 2560
+  layers: all            # layer_index K = output of decoder block K = HF hidden_states[K+1]
+
+paths:
+  root: data/nla/ml/gemma4b
+
+corpus:
+  source: openbmb/Ultra-FineWeb
+  shard: data/nla/ml/corpus/raw/data/ultrafineweb_en/ultrafineweb-en-part-0001-of-2048.parquet
+  text_column: content
+  n_docs: 20000          # DEV: 100k in the recipe; 20k docs x 10 = 200k rows, 100k per side
+  positions_per_doc: 10
+  min_position: 50       # recipe _MIN_POSITION
+  max_length: 1024       # DEV: recipe 2048; bounds the explainer prompt (local 12B, not an API)
+  min_tokens: 60         # DEV: docs with < min_position+10 tokens are skipped (recipe: short-sampled)
+  split_by: doc          # DEV: recipe splits rows; splitting by doc keeps AV/AR corpora disjoint
+  av_frac: 0.5           # DEV: recipe 25/25/50 with RL taking 50 %; no RL here (no SGLang/Miles)
+  holdout_docs_per_side: 100   # -> ~1k held-out rows per side for the eval-time controls
+  sample_seed: 42        # recipe stage0 seed; positions via sha256(f"{seed}|{doc_id}")
+
+explainer:
+  model_id: google/gemma-3-12b-it   # DEV: recipe uses claude-sonnet-4-6 via API; local instead
+  max_new_tokens: 300
+  temperature: 1.0
+  top_p: 0.95            # Gemma-3 generation_config defaults (sampling is pure T=1.0 in the recipe)
+  top_k: 64
+  batch_size: 24
+  n_shards: 10
+  min_features: 2        # recipe _MIN_FEATURES; rows with no <analysis> match are dropped
+
+av:
+  lr: 1.41e-5            # recipe 2e-5 @ batch 256, sqrt-scaled to batch 128
+  min_lr: 1.41e-6
+  warmup_steps: 50       # recipe --lr-warmup-iters 50
+  global_batch: 128
+  micro_batch: 8
+  epochs: 1
+  weight_decay: 0.0
+  grad_clip: 1.0
+  max_response_tokens: 320
+  # injection_scale_K = mean raw ||v|| over the AV-train rows at layer K, rounded UP to two
+  # significant figures ("a round number a bit above the mean", TRAINING_NOTES.md). Measured by
+  # the extract stage, stored in acts/norms.json, frozen before any SFT.
+  injection_scale_rule: ceil_2sf_of_mean_norm
+
+ar:
+  lr: 1.41e-5
+  min_lr: 1.41e-6
+  warmup_steps: 50
+  global_batch: 128
+  micro_batch: 32
+  epochs: 1
+  weight_decay: 0.0
+  grad_clip: 1.0
+  mse_scale: sqrt_d      # 50.596 for d=2560; loss = mse(normalize(pred), normalize(gold)) = 2(1-cos)
+
+check:
+  n_reads: 96            # held-out AV vectors read greedily and reconstructed (cycle fidelity)
+  max_new_tokens: 200

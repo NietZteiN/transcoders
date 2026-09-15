@@ -1,14 +1,14 @@
 # Transcoders — Hypotheses, Experiments & Task Checklist
 
-*Last updated: 2026-09-03*
+*Last updated: 2026-09-14*
 **Status:** Phase 0 in progress (scaffold built, smoke passing; no science runs yet) · **Instrument 3** (SAE + transcoder feature/circuit analysis)
 
 The living plan for the `transcoders/` sub-project. Master hypotheses ledger + experiment
 tracker + phased to-do list. Source of truth for *what* and *why*:
-[`experiment_menu.md`](experiment_menu.md) (full E1–E8 menu), the proposal deck in this
-folder, [`../papers/REFERENCES.md`](../papers/REFERENCES.md) (Papers 1–3), and
-[`../CLAUDE.md`](../CLAUDE.md) §3–§4. Per-thread progress lives in
-[`../log/`](../log/); this file is the master list those threads resolve against.
+[`docs/experiment_menu.md`](docs/experiment_menu.md) (full E1–E8 menu), the proposal deck in
+[`docs/`](docs/), [`papers/REFERENCES.md`](papers/REFERENCES.md) (Papers 1–3), and
+[`CLAUDE.md`](CLAUDE.md) §3–§4. Per-thread progress lives in
+[`log/`](log/); this file is the master list those threads resolve against.
 
 **Legend** — task boxes: `[ ]` todo · `[~]` in progress · `[x]` done.
 Hypothesis status: `open` · `testing` · `✓ supported` · `✗ refuted` · `~ inconclusive`.
@@ -90,10 +90,10 @@ Feasibility: ⚠️ mixed. Small supported models (Gemma-2-2B, Llama-3.2-1B, Qwe
   descriptive decoys. **A patching-based E3 on L1b needs a tier generated under a length-matching
   constraint; an existing corpus cannot be retrofitted.** L2/L3 (flattening) has not been measured
   for this and must be checked the same way before any patching run.
-  See [`../log/nla-harness/2026-09-03_patch-alignment-impossible.md`](../log/nla-harness/2026-09-03_patch-alignment-impossible.md).
+  See [`log/nla-harness/2026-09-03_patch-alignment-impossible.md`](log/nla-harness/2026-09-03_patch-alignment-impossible.md).
   *(The related worry that the +27-token inflation confounds the L1b effect itself was tested and
   is **not** supported — ρ_partial = −0.159 [−0.420, +0.123]; see
-  [`../log/nla-harness/2026-09-03_length-confound-results.md`](../log/nla-harness/2026-09-03_length-confound-results.md).
+  [`log/nla-harness/2026-09-03_length-confound-results.md`](log/nla-harness/2026-09-03_length-confound-results.md).
   The prerequisite above is about the patching **method**, not about the stimuli being invalid.)*
 
 ### E4 — Dispatcher state-binding probe across hops · T2 · tests HT4
@@ -136,7 +136,7 @@ Feasibility: ⚠️ reasoning-Qwen lack pretrained SAEs (use R1-Distill-Qwen-1.5
 ## 3. Task checklist ("things to do")
 
 ### Phase 0 — Infrastructure, data & dictionaries *(blocks everything)*
-- [x] Create `src/`, `configs/`, `data/` (large artifacts → `data/`, never `$HOME` — [`../CLAUDE.md`](../CLAUDE.md) §2). *(2026-08-03: full tree + `scripts/smoke.sh`; see `src/README.md`.)*
+- [x] Create `src/`, `configs/`, `data/` (large artifacts → `data/`, never `$HOME` — [`CLAUDE.md`](CLAUDE.md) §2). *(2026-08-03: full tree + `scripts/smoke.sh`; see `src/README.md`.)*
 - [x] Pin conda env `/data/jvl210002/conda_envs/transcoders-mi`; write `environment.yml`. *(2026-08-03: created + frozen (`environment.yml` exact pins + `environment.lock.txt`); circuit-tracer 0.5.2 installed (downgrades transformers→4.57 — documented); `pip check` clean; smoke green in-env; `scripts/env.sh` handles the CXXABI `LD_LIBRARY_PATH` fix.)*
 - [x] Pull the reused **stimuli**: Dataset A + Dataset B. *(2026-08-04: located, symlinked, AND **converted** — `src/convert_stimuli.py` → 350 Snippet-JSONL rows with per-span classes and the cross-tier-derived decoy↔true `rename_map` (100% pairing on A-L1b; alignment parquets proved to be a different generation round — see `DATA_SOURCES.md`). Span→token resolution **1.0000** on Llama-3.1 + Qwen3 tokenizers.)*
 - [~] Ingest the **behavioral tables** from Papers 2–3. *(2026-08-04: **located + symlinked** — `paper2_trials.parquet` (31,711 rows; `is_core==1` → 29,546), `paper2_adv_features.parquet` (ISF etc.), `paper2_dispatcher_cf.csv`, `paper3_human_graded.csv`, `paper3_model_results.xlsx`. Gotcha: HCI is **derived**, not stored — recipe in `DATA_SOURCES.md`.)*
@@ -146,7 +146,7 @@ Feasibility: ⚠️ reasoning-Qwen lack pretrained SAEs (use R1-Distill-Qwen-1.5
 - [ ] Build the **steering/intervention** harness (SAELens / circuit-tracer) + the **dense-steering + prompting baselines**.
 - [ ] Build the **probing** harness (linear + SAE-feature probes) for E4.
 - [ ] Wire results into the **existing GLMM stack** (binomial GLMMs, crossed random effects snippet×model, Wilson CIs, BH-FDR).
-- [x] Seed + provenance logging scaffold (script sha256, GPU id, timestamp, dictionary id) — [`../CLAUDE.md`](../CLAUDE.md) §4. *(2026-08-03: `src/seedutil.py` + `src/provenance.py` → `run_manifest.json` per run; `src/gpu.py` enforces idle-GPU pinning before torch import.)*
+- [x] Seed + provenance logging scaffold (script sha256, GPU id, timestamp, dictionary id) — [`CLAUDE.md`](CLAUDE.md) §4. *(2026-08-03: `src/seedutil.py` + `src/provenance.py` → `run_manifest.json` per run; `src/gpu.py` enforces idle-GPU pinning before torch import.)*
 
 ### Phase 1 — Committed Tier-1 instrument (E1 · E2 · E3-PoC · E7) + E4
 - [x] **Smoke-test** the E1 extraction path before the full sweep. *(2026-08-04: ran directly on the cached Llama-3.1-8B-Instruct itself — 10 real Dataset-A L0/L1b items, GPU 1, span resolution 1.000, `resid_post_L{12,16,20}` captured; L16 Llama Scope SAE encodes them at L0=28 / cos 0.773 / **FVU 0.506 → Q-norm open** (scale-convention vs real transfer gap) — resolve before trusting E1 feature masses.)*
@@ -189,6 +189,24 @@ findings that survive are the useful ones — NLA reads are theme-reliable but d
 model's eventual answer at L20, round-trip faithfulness tracks position/length rather than
 comprehension, and LLM-judged step alignment separates populations without ranking items.
 
+#### ASE-2026 block — CodeSteer comparison (thread `log/nla-harness/`, hypotheses tagged "(ASE)")
+User's standing ask: *test a variety of steering methods and see if we can match or surpass CodeSteer*
+(the ASE-2026 paper's post-hoc attention steering), then *see the heads*. Host for everything here is
+**CodeLlama-7b-Instruct** — the only permitted model with damage worth recovering (H-R1: +0.113).
+- [x] **H-R1 (ASE) replication** — their batched T/F protocol reproduces (1 930 cases vs their 1 922); their −36-pt renaming damage does **not** on any permitted model (Llama-3.1-8B +0.030, CodeGemma-7B +0.076, CodeLlama-7B +0.113). *(2026-09-14)*
+- [x] **H-R2 (ASE) accuracy bake-off** — *scored 2026-09-15: `MATCH-CODESTEER` (`prompt` 0.634 vs `codesteer` 0.608, +0.025, α/3 CI ∋ 0), `SLICE-IRRELEVANT` (+0.023), `swap_oracle` 0.735 the only arm outside the ±0.14 noise floor; H-R2c unreadable on a +0.025 denominator; H-R4 refuted. `log/nla-harness/2026-09-15_bakeoff-results.md`.* Original spec: — 50 renamed snippets, 3 sampled runs, case-weighted Pass@1, all arms through *their* runtime: `unsteered` · `codesteer` (README-exact, β 0.8, last 8 layers) · `codesteer_auto` (their calibrated head subset, Eq. 10) · `rand_prior` · `uniform_prior` · `prompt` · NLA residual arms `swap_oracle` / `foreign` / `erasure` / `combined`. H-R2a best-of-ours vs the better paper reading (α/3 interval), H-R2b prior specificity, H-R2c restoration vs `original_unsteered`. Noise floor from the β = 0 identity runs: +0.067 [−0.078, +0.210] — any `MATCH` is resolution-limited. Jobs 399685–399863, 400250–400254.
+- [ ] **H-R5 (ASE) — the heads: how many, which, and are they CodeSteer's?** *(added 2026-09-14 at user request; H-R2 scored 2026-09-15 — comparator `codesteer` 0.608 / `codesteer_auto` 0.576 (calibrated heads not better, −0.032); unblocked.)*
+  **Head score = how much the head changes the NLA.** For each attention head *h* of the host, with the NLA write in place (the `erasure` arm's vector at the identifier spans — the deployable one — and `swap_oracle` as the ceiling), the per-head score is the change in the NLA-transported effect when *h* is blind to the write:
+  `nec_h = dG(S) − dG(S, h ← U)` and `suf_h = dG(U, h ← S)` (the H-S2/H-W31 activation-patching definitions, `nla/src/head_patch.py`, `nla_head_sweep.py`) — U = unsteered renamed run, S = the same run with the write, G = teacher-forced log-prob of the original-condition reply. Secondary, read-side: KL of the answer-token distribution with vs without *h* (what the head does to what the model *says*, not only to the score).
+  Three frozen readouts:
+  1. **How many heads are needed** — greedy top-*k* by `suf` selected on one split half (crc32 parity), scored on the other; *k\** = smallest *k* whose top-*k* patched together reaches **≥ 90 %** of the full write's effect, against a layer-matched random-*k* null (H-S2's `LRAND_k`). Compare *k\** with CodeSteer's fixed budget (**4 heads × 8 layers = 32 of 1 024** on CodeLlama-7B).
+  2. **Are they CodeSteer's heads?** — CodeSteer's set per snippet is *observational*: top-4 heads per layer in the last 8 layers by `agree_h = Σ_k P_last[h,k]·prior[k]` at the first decode step (`steering/runtime.py:448`), already stored per snippet in `bakeoff_codellama7b/codesteer_auto.jsonl` (`codesteer_heads`). Readout: Jaccard and rank-ρ between our top-*k\** and their 32 at matched *k*; plus the **window test** — the share of our top-*k\** that lies in their layers 24..31 at all (H-S2 on the 4B found the carriers at L23 of 34 and H-W31 on the 12B at L41/L46 of 48 — mid-to-late, not last-8, so the pre-registered prediction is **`DIFFERENT-HEADS`**: Jaccard < 0.25 and < half of our heads inside their window).
+  3. **Do their heads move the NLA?** — patch CodeSteer's 32 heads with the write (`suf` of their set) vs our top-32 vs random-32: if their set carries < 50 % of what ours does, the two methods act through different heads; if ≥ 80 %, the same circuit is reached by two selection rules.
+  Cost: 32 layers × 32 heads = 1 024 components × 2 patched forwards × 50 snippets ≈ 100 k forwards at the measured ~40 ms → ~1.2 GPU-h + joint stage; one A6000/H100. Identity gates as in H-S2 (SELF 0.000, ALL reproduces S). Prereg entry before running.
+- [x] **H-R6 (ASE) — a better deployable vector (user request 2026-09-14: "find a better vector across the dataset, use NLA").** Diagnosis: `foreign` 0.574 ≈ `erasure` 0.576 ≪ `swap_oracle` 0.735 — erasure-shaped writes are bounded at ≈ 0 (tier ladder `ERASURE-FLOOR`; W16 meaning ≈ 51 %), so the vector must **install meaning** oracle-free. Meaning source = the renamed Java's own declared **type** + AST **role** (`nla/src/ase_roles.py`). Fit on the ~106 non-test snippets, written to the 50 test snippets — no LOO on the test set. Arms: `ridge_map` (reduced-rank ridge `h1b → h0 − h1b`, nests `erasure` at rank 0; pre-GPU gate = held-out cosine margin ≥ 0.05 over the mean-delta model), `role_proto` (type|role-matched clean-state prototype; ladder `foreign < role_proto < swap_oracle`), `prompt_types` (same facts as text — the §4 prompting baseline). Rules: H-R6a `MAP-BEATS-MEAN` (≥ +0.05 over `erasure`, CI > 0) · H-R6b `CATEGORY-MEANING-HELPS` (≥ +0.05 over `foreign`) · H-R6c `LATENT-BEATS-PROMPT` / `PROMPT-SUFFICES`. Predictions: a in activation space only, b small, c `PROMPT-SUFFICES`. Deferred: `swap_guess` (host's own per-identifier guesses → de-obfuscated prompt's states; partner = that prompt as text) and `ar_role` (an NLA AR on CodeLlama-7B L7 writing `AR(type + usage description)`, ~1 day port + ~20 GPU-h — held until a–c show latent headroom over prompting). Prereg [`log/nla-harness/2026-09-14_better-vector-prereg.md`](log/nla-harness/2026-09-14_better-vector-prereg.md) · config [`nla/configs/ase_vectors.yaml`](nla/configs/ase_vectors.yaml) · pool job 401200. *Scored 2026-09-15: a `MAP-NOT-BETTER` (+0.025), b `CATEGORY-MEANING-INERT` (+0.076, CI ∋ 0), c `PROMPT-SUFFICES` against the intact `prompt` arm (+0.016; the registered `prompt_types` baseline collapsed on format). `role_proto` 0.650 / parse 0.998. `log/nla-harness/2026-09-15_better-vector-results.md`.*
+- [ ] **H-R3 (ASE) stronger renamer** — held: the paper's renamer is milder than Paper 2's adversarial L1b; re-run H-R1 on CodeLlama with our decoy renamer if H-R2 shows anything worth recovering more of.
+- [x] **H-R4 (ASE) prompt-format damage** — *refuted 2026-09-15: raw-prompt damage +0.025 vs chat-templated +0.113; the raw prompt hurts clean code (0.558 vs 0.800), not renaming.* Original spec: — descriptive, free from job 399863 (`original_unsteered − unsteered` in their raw-prompt runtime vs the chat-templated +0.113).
+
 ### Phase 2 — Stretch
 - [ ] **E3 full** — decide whether to spend ~130–150 H100-hr on a trained CLT for Llama-3.1-8B, or stay at PoC scale.
 - [ ] **E5** cross-model comparison (RSA/CKA + probing primary; train coder-model SAE if the clean version is worth it).
@@ -211,7 +229,7 @@ DeepSeek-R1-Distill-Llama-8B (Llama base, DeepSeek distillation).
 **Instrument 3 is barely affected.** `Llama-3.1-8B-Instruct` is the only panel model with **both**
 pretrained SAEs and transcoders (Llama Scope, EleutherAI, Goodfire l19 on *Instruct*), and it is
 cached. `Gemma-2-2B` remains the mandated smoke-test model and has native `circuit-tracer` support,
-so [`../CLAUDE.md`](../CLAUDE.md) §4's small-model requirement is *easier* to satisfy, not harder.
+so [`CLAUDE.md`](CLAUDE.md) §4's small-model requirement is *easier* to satisfy, not harder.
 
 **Instrument 2 is a port, not a rebuild.** Three of the four released NLA pairs are non-Chinese —
 `kitft/nla-gemma3-12b-L32-{av,ar}`, `kitft/nla-gemma3-27b-L41-{av,ar}`,
@@ -304,7 +322,7 @@ host, the layer (20 → 32) and d_model (3584 → 3840) all differ, so G0 gates 
 
 
 ## 4. Per-experiment "definition of done" (discipline gate)
-Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUDE.md) §4):
+Applies to every experiment before a result is "kept" ([`CLAUDE.md`](CLAUDE.md) §4):
 - [ ] Deterministic **seed** set and recorded; variance across ≥2 seeds/conditions noted.
 - [ ] **Dictionary identity** logged (pretrained id+rev, or trained checkpoint + training config).
 - [ ] **Baseline included** where applicable — dense probe (E4/E5), dense-steering + prompting (E2), random-feature ablation (E2). *SAEs are discovery tools, not measurement.*
@@ -317,6 +335,9 @@ Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUD
 ---
 
 ## Changelog
+- **2026-09-14b** — Moved from `docs/CHECKLIST.md` to the project base `CHECKLIST.md` (user request); links re-based.
+- **2026-09-14c** — H-R6 (ASE) added at user request: oracle-free meaning-installing vectors (`ridge_map` / `role_proto` / `prompt_types`, deferred `swap_guess` / `ar_role`), rules frozen before the pool capture.
+- **2026-09-14** — ASE-2026 block added to the Instrument-2 sidebar: H-R1 (done), H-R2 (running) and, at user request, **H-R5 — the head comparison against CodeSteer** (how many heads the NLA effect needs, whether they are CodeSteer's calibrated heads, whether CodeSteer's heads move the NLA), with heads scored by how much they change the NLA-transported effect (`nec`/`suf` activation patching) and a pre-registered `DIFFERENT-HEADS` prediction. Runs after H-R2 is scored.
 - **2026-08-31b** — Phase G started: `_layers()` fixed in both files, AV/AR pair downloaded (ungated). **Blocked on an HF token** — `google/gemma-3-12b-it` is `gated: manual`. Reference-file findings recorded: **G0 is available for Gemma**, and the L32 layer is **low-variance (Var = 0.0302)** so `rt_cos` compresses to ~0.99 — but `fve_nrm` is a pure function of `rt_cos` given that constant, so the fix is a derived column, not 23 files.
 - **2026-08-31** — **Phase G added**: model-constraint port to Gemma. No Chinese-origin models going forward removes `Qwen2.5-7B-Instruct` (the Instrument-2 host) and five of seven panel models. Instrument 3 is barely affected — `Llama-3.1-8B` is the only panel model with both SAEs and transcoders, and `Gemma-2-2B` (circuit-tracer native) still serves the mandated smoke test. Instrument 2 ports rather than dies: three of four released NLA pairs are non-Chinese, and **Gemma-3-12B-IT is the recommended successor** as the only host with both an NLA pair and a dictionary suite. Two integration facts recorded before any GPU time: `_layers()` will fail on `Gemma3ForConditionalGeneration`, and Gemma normalises embeddings by √d. Estimate ≈ 1 week, gated on G0.
 - **2026-08-03** — Phase-0 progress recorded: scaffold tree + provenance/seed/gpu discipline **done**; `environment.yml` written + extraction harness built and smoke-tested **[~]** (env not created; batching/GQA/sink-tracking + `apply_dictionary` pending); annotated the remaining boxes with their landing zones (`configs/data.yaml`, `configs/dictionaries.yaml`). Status → Phase 0 in progress.
@@ -325,3 +346,5 @@ Applies to every experiment before a result is "kept" ([`../CLAUDE.md`](../CLAUD
 - **2026-08-07** — Instrument-2 sidebar expanded: banked corpus, N4/N5 instruments and the HT12–HT14 pre-registration recorded; **HT12 refuted** and the 2026-08-06 faithfulness↔correctness gap reclassified as a reply-length artifact. HT9–HT11 remain parked.
 - **2026-07-24** — Created. Formalized HT1–HT8 from the E1–E8 confirm/falsify conditions in `experiment_menu.md`; added the external attention H1–H4 that E7 triangulates; laid out the phased task list (Phase 0 infra → Phase 1 committed E1/E2/E3-PoC/E7+E4 → Phase 2 stretch → Phase 3 synthesis) and the discipline gate.
 - **2026-09-03** — E3: recorded the **token-length-matching prerequisite** for any patching-based attribution work, measured on the banked L0/L1b corpus (0/60 pairs admit a 1:1 token map; median +27-token inflation). Noted that the separate question — whether that inflation confounds the L1b effect — was tested and refuted (ρ_partial = −0.159), so the prerequisite constrains the method, not the stimuli.
+- **2026-09-15** — H-R2 and H-R4 (ASE) boxes closed with their verdicts; H-R5 unblocked with its comparator numbers.
+- **2026-09-15b** — H-R6 (ASE) box closed with its verdicts; H-R7 (damage-bearing stimuli) and H-R8 (compliance vs meaning) to be added when pre-registered.
