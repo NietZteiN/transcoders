@@ -26,7 +26,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ase_roles                                        # noqa: E402
-from ase_steer_run import TAG as _T, TEMP, TOP_P, prepare_residual   # noqa: E402
+from ase_steer_run import TAG as _T, TEMP, TOP_P, prepare_residual, install_chat_template   # noqa: E402
 
 TAG = "[POOL]"
 
@@ -59,6 +59,9 @@ def main() -> int:
     lm.config(model_name=args.model_id, max_new_tokens=8, temperature=TEMP, top_p=TOP_P,
               key_scope="prompt", cache_dir=cache_dir)
     lm.build()
+    if cfg.get("chat_template", False):
+        install_chat_template(lm)        # H-R7: capture the states of the [INST]-wrapped prompt
+        print(f"{TAG} chat template ON", flush=True)
     t0 = time.time()
     prep, excluded = prepare_residual(lm, packs, cfg["paths"]["packs_orig"], cfg["paths"]["manifest"], K, TAG)
     if not prep:

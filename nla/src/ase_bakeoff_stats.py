@@ -180,6 +180,27 @@ def main() -> int:
     st["vs_unsteered"] = {a: paired(arms[a], uns, i) for i, a in enumerate(sorted(arms)) if a != "unsteered"}
     st["restoration"] = {a: restoration(arms[a], uns, orig, 100 + i)
                          for i, a in enumerate(STEERED) if a in arms}
+    # H-R7 (2026-09-15_chat-template-rerun-prereg): the damage gate and their claim on that deficit.
+    # Computed on every run (descriptive on the raw-prompt dir; read as verdicts only in the chat re-run).
+    dmg = paired(orig, uns, 700)
+    dv = ("DAMAGE-PRESENT" if dmg["mean"] > 0 and dmg["ci95"][0] > 0
+          else "DAMAGE-WEAK" if dmg["mean"] >= 0.03 else "DAMAGE-ABSENT")
+    r7 = {"damage": {**dmg, "verdict": dv}, "readable": dv != "DAMAGE-ABSENT", "provisional": dv == "DAMAGE-WEAK"}
+    cs = {a: paired(arms[a], uns, 710 + i) for i, a in enumerate(("codesteer", "codesteer_auto")) if a in arms}
+    if cs:
+        # Bonferroni over the two CodeSteer readings: 97.5 % CIs
+        for a, d in cs.items():
+            keys = sorted(set(arms[a]) & set(uns))
+            x = np.array([arms[a][k][0] - uns[k][0] for k in keys]); n = np.array([arms[a][k][1] for k in keys], dtype=float)
+            rng = np.random.default_rng(SEED + 720); idx = rng.integers(0, len(keys), size=(N_BOOT, len(keys)))
+            b = np.sort((x[idx] * n[idx]).sum(1) / n[idx].sum(1))
+            d["ci97.5"] = [float(b[int(.0125 * N_BOOT)]), float(b[int(.9875 * N_BOOT)])]
+        restores = any(d["mean"] >= 0.03 and d["ci97.5"][0] > 0 for d in cs.values())
+        harms = any(d["mean"] < 0 and d["ci97.5"][1] < 0 for d in cs.values())
+        inert = all(abs(d["mean"]) < MATCH_TOL and d["ci95"][0] <= 0 <= d["ci95"][1] for d in cs.values())
+        r7["a"] = {**cs, "verdict": ("CODESTEER-RESTORES" if restores else "CODESTEER-HARMS" if harms
+                                     else "CODESTEER-INERT" if inert else "CODESTEER-UNRESOLVED")}
+    st["H_R7"] = r7
     # H-R2b
     if "codesteer" in arms and "rand_prior" in arms:
         d = paired(arms["codesteer"], arms["rand_prior"], 200)
@@ -238,6 +259,11 @@ def main() -> int:
     for a, d in st["restoration"].items():
         if d.get("n"):
             st["summary"].append(f"restoration {a}: {100 * d['ratio']:.1f} % [{100 * d['ci95'][0]:.1f}, {100 * d['ci95'][1]:.1f}]")
+    st["summary"].append(f"H-R7 damage {st['H_R7']['damage']['verdict']}: original - unsteered = "
+                         f"{st['H_R7']['damage']['mean']:+.4f} {np.round(st['H_R7']['damage']['ci95'], 4).tolist()}"
+                         + (f" · H-R7a {st['H_R7']['a']['verdict']}: " + " · ".join(
+                             f"{a} {d['mean']:+.4f} adj {np.round(d['ci97.5'], 4).tolist()}"
+                             for a, d in st['H_R7']['a'].items() if a != 'verdict') if 'a' in st['H_R7'] else ""))
     if "H_R2b" in st:
         st["summary"].append(f"H-R2b {st['H_R2b']['verdict']}: codesteer - rand_prior = {st['H_R2b']['mean']:+.4f} {np.round(st['H_R2b']['ci95'], 4).tolist()}")
     if "H_R2a" in st:

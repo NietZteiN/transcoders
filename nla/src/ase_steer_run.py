@@ -47,6 +47,14 @@ layer K of THEIR model object, at the renamed prompt's identifier token position
                   written item's original enters its vector.
     combined    : `codesteer` (their level-2 attention steering, decode-only) + `erasure` (our write at
                   prefill) together -- different channels; the amendment reads super-/sub-additivity.
+CHAT TEMPLATE (H-R7, 2026-09-15_chat-template-rerun-prereg). `--chat-template` wraps the string their
+`_build_prompt` returns in the tokenizer's chat template (`[INST] ... [/INST]` for CodeLlama-Instruct),
+the ids our H-R1 harness fed the same model. It is installed as the INSTANCE's `_build_prompt`, so their
+generation, their prior's token alignment, their Eq. 10 calibration and our residual alignment all see the
+one templated string; their code is untouched. Why: their raw prompt drops CodeLlama-Instruct to 0.545 on
+clean code (chance 0.500) and inverts the renaming damage, so the raw-prompt bake-off ranked arms on a
+deficit with the wrong sign (parse-rate-correction entry). Gate, every prompt: the ids the tokenizer
+produces from the templated text must equal `apply_chat_template(..., tokenize=True)` exactly.
 Identity gate before any residual arm, per snippet: writing the renamed prompt's OWN exact per-token
 state must leave the next-token logits at the last prompt position within --self-tol of the unhooked
 forward, and `n_positions_written` must equal the number of aligned decoy tokens; any failure exits 3.
@@ -132,6 +140,37 @@ def _encode(tok, prompt: str):
     if off < 0 or full[off:] != bare:
         raise RuntimeError("special-token layout is not a pure prefix; positions cannot be offset")
     return full, off
+
+
+def chat_wrap(tok, raw: str) -> str:
+    """The chat-templated TEXT whose tokenisation equals apply_chat_template(tokenize=True) -- the ids our
+    H-R1 harness generated from. The rendered template starts with a literal `<s>`; with the tokenizer's
+    default `add_bos_token=True` the text path yields a double BOS, and stripping the literal instead
+    changes the next token (`[INST]` -> `_[INST]`, id 29961 -> 518, because SentencePiece adds its dummy
+    prefix space after a text start but not after a special token). So `install_chat_template` sets
+    `add_bos_token=False` and the literal `<s>` carries the BOS; this gate proves the equality per prompt."""
+    msgs = [{"role": "user", "content": raw}]
+    ref = list(tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True, return_dict=False))
+    text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    if tok(text)["input_ids"] != ref:
+        raise RuntimeError("chat-template ids gate: tokenizer(templated text) != apply_chat_template ids")
+    return text
+
+
+def install_chat_template(lm) -> None:
+    """Replace the instance's `_build_prompt` (a staticmethod on their class) so every consumer -- run_llama,
+    calibrate_head_subset, prepare_residual -- receives the templated string, and switch the instance's
+    tokenizer to `add_bos_token=False` so the template's literal `<s>` is the only BOS (see chat_wrap).
+    Bound per instance, never on the class, so nothing else that imports their module is affected.
+    `_encode` then measures a BOS offset of 0 and `align` sees `<s>` as token 0 -- positions stay absolute."""
+    base = type(lm)._build_prompt
+    tok = lm.tokenizer
+    tok.add_bos_token = False
+
+    def build(code_snippet, *, instruction, language, answer_prefix=""):
+        return chat_wrap(tok, base(code_snippet, instruction=instruction, language=language,
+                                   answer_prefix=answer_prefix))
+    lm._build_prompt = build
 
 
 @torch.no_grad()
@@ -268,6 +307,8 @@ def main() -> int:
     ap.add_argument("--beta", type=float, default=1.0)
     ap.add_argument("--self-tol", type=float, default=0.05,
                     help="identity gate: max |dlogit| at the last prompt position when writing the exact own state")
+    ap.add_argument("--chat-template", action="store_true",
+                    help="H-R7: wrap the prompt in the tokenizer's chat template (ids == our H-R1 harness)")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--out", required=True)
@@ -316,6 +357,12 @@ def main() -> int:
     else:
         print(f"{TAG} steering OFF (control arm shares the same runner)", flush=True)
     lm.build()
+    if args.chat_template:
+        install_chat_template(lm)
+        probe = lm._build_prompt("int x = 1;", instruction="say hi", language="java", answer_prefix=ANSWER_PREFIX)
+        print(f"{TAG} chat template ON: {probe[:40]!r} ... {probe[-24:]!r} ({len(lm.tokenizer(probe)['input_ids'])} ids)", flush=True)
+    else:
+        print(f"{TAG} chat template OFF (their raw prompt)", flush=True)
     torch.manual_seed(SEED)
     steered = args.arm in ATTN_ARMS
     effect = None
@@ -439,6 +486,7 @@ def main() -> int:
             passk[f"pass@{k}"] = float(np.mean(
                 [any(per_run[j]["pred"].get(c) == truth[c] for j in range(k)) for c in case_ids]))
         row = {"snippet": sid, "arm": args.arm, "model": args.model_id, "n_cases": len(cases),
+               "chat_template": bool(args.chat_template),
                "parsed_frac": float(np.mean([r["n_parsed"] / len(cases) for r in per_run])),
                **passk, "runs": per_run}
         if calib is not None:
