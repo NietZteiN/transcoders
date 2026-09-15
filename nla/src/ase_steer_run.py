@@ -476,11 +476,21 @@ def main() -> int:
             text = res.get("generated_text", "") or ""
             dbg = res.get("steering_debug") or {}
             eff = effect.snapshot() if effect is not None else {}
-            if steered and eff.get("l2_effective_calls", 0) <= 0:
+            # The effect gate reads in BOTH directions, because the identity floor's whole job is to be
+            # the identity: `codesteer_beta0` must report 0 effective calls (a nonzero count would mean
+            # beta_post=0 does NOT neutralise level-2, and the raw-prompt floor was mislabelled), every
+            # other steered arm must report > 0 (job 403742/405553, 2026-09-15).
+            want_effect = steered and args.arm != "codesteer_beta0"
+            n_eff = int(eff.get("l2_effective_calls", 0))
+            if want_effect and n_eff <= 0:
                 # A steered arm whose level-2 op never changed an attention row would be an unsteered
                 # arm wearing a label (exactly what the beta=0 runs were).
                 print(f"{TAG} FATAL: arm={args.arm} but no effective level-2 call on {sid}: {eff} {dbg}",
                       flush=True)
+                sink.close(); return 3
+            if steered and not want_effect and n_eff > 0:
+                print(f"{TAG} FATAL: identity floor arm={args.arm} changed {n_eff} attention rows on "
+                      f"{sid}: {eff} {dbg}", flush=True)
                 sink.close(); return 3
             pred, meta = ce.parse_predicted_labels(text, case_ids, strict_json=True)
             per_run.append({"n_parsed": len(pred), "parse_mode": meta.get("mode"),
