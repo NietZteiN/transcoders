@@ -1,0 +1,59 @@
+# H-R14 (ASE, 2026-09-16) — the H-R7 chat-template vectors REFITTED by NESTED GROUPED CROSS-FIT so that
+# all 148 aligned snippets can be test snippets at once (log/nla-harness/2026-09-16_full-corpus-prereg.md).
+#
+# WHY A NEW FILE. ase_vectors_chat.yaml fitted on the 98 snippets outside the 50-snippet bake-off. With
+# every aligned snippet under test that pool is empty, so the split is replaced by K outer folds: a
+# snippet's vector is fitted on the OTHER folds only — mu, the mean delta, the RRR map, the role
+# prototypes AND the (lambda, rank) choice. The H-R7 config is NOT edited; it stays the record of what
+# the 50-snippet numbers were produced with.
+#
+# Everything below except `cross_fit` and the three output paths is byte-identical to
+# ase_vectors_chat.yaml. Nothing is retuned: the lambda/rank ladder, the CV fold count, the gate margin
+# and the seed are all carried over frozen. The pool capture is REUSED unchanged
+# (pool_codellama7b_L7_chat.pt, 4,799 spans / 148 snippets) — it was always captured over every aligned
+# snippet, test and pool alike, so no GPU is needed to re-fit.
+
+seed: 20260724
+layer: 7                 # carried from the residual-arms amendment; NOT tuned here
+chat_template: true      # the pool was captured with the chat template installed
+
+cross_fit:
+  # K outer folds by SNIPPET (seeded permutation, `seed` above). Each snippet is a test snippet in
+  # exactly one fold and a fit snippet in the other K-1. K=5 leaves ~118 fit snippets per fold, well
+  # above min_pool_snippets, and costs ~5x one grouped CV pass (~20 s per rrr_fit, CPU only).
+  folds: 5
+
+paths:
+  ase_root: /scratch/juno/jvl210002/ase2026
+  packs_renamed: /scratch/juno/jvl210002/ase2026/full/packs_ren_full.jsonl
+  packs_orig: /scratch/juno/jvl210002/ase2026/full/packs_orig_full.jsonl
+  manifest: /scratch/juno/jvl210002/ase2026/rename_manifest.jsonl
+  test_subset: /scratch/juno/jvl210002/ase2026/full/packs_orig_full.jsonl   # all 148; unused when cross-fitting
+  pool: /scratch/juno/jvl210002/ase2026/pool_codellama7b_L7_chat.pt
+  vectors: /scratch/juno/jvl210002/ase2026/full/vectors_codellama7b_L7_full.pt
+  fit_report: /scratch/juno/jvl210002/ase2026/full/vectors_codellama7b_L7_full.fit.json
+
+split:
+  test_from: test_subset
+  min_pool_snippets: 60    # abort the fit (exit 3) if any fold's fit pool falls below this
+
+ridge_map:
+  lambdas: [1.0e+2, 1.0e+3, 1.0e+4, 1.0e+5, 1.0e+6]   # signed exponent: PyYAML parses 1.0e2 as a string
+  ranks: [4, 16, 64, 256]
+  cv_folds: 5
+  apply_per_token: false
+  # PRE-GPU GATE, now CONJUNCTIVE ACROSS FOLDS: every fold's selected map must beat its own mean-delta
+  # model on held-out pool cosine by >= this margin, else `ridge_map` is not run. One failing fold means
+  # some snippets would receive a vector the gate exists to veto.
+  gate_cos_margin: 0.05
+
+role_proto:
+  tag_levels: [type_role, type, kind]      # kind = method | variable
+  min_bucket: 5
+
+prompt_types:
+  line: "- `{decoy}`: declared `{type}`, role: {role}"
+
+stats:
+  n_boot: 10000
+  match_tol: 0.05
