@@ -318,6 +318,10 @@ def main() -> int:
                     help="identity gate: max |dlogit| at the last prompt position when writing the exact own state")
     ap.add_argument("--chat-template", action="store_true",
                     help="H-R7: wrap the prompt in the tokenizer's chat template (ids == our H-R1 harness)")
+    ap.add_argument("--seed", type=int, default=SEED,
+                    help="H-R15: seeds generation sampling (torch), the `foreign` pick and their "
+                         "`rand` prior. Defaults to the frozen SEED, so omitting it reproduces every "
+                         "run banked before 2026-09-17 bit-for-bit as far as the RNG is concerned.")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--out", required=True)
@@ -357,7 +361,7 @@ def main() -> int:
                         "combined": "slice_hybrid", "uniform_prior": "uniform", "ast_prior": "ast",
                         "codesteer_beta0": "slice_hybrid"}[args.arm]
         if cfg["prior"] == "rand":
-            cfg["rand_seed"] = SEED
+            cfg["rand_seed"] = args.seed
         if args.arm == "codesteer_auto":
             cfg["head_subset_mode"] = "auto"       # paper Eq. 10: calibrated top-k heads per layer
         if args.arm == "codesteer_beta0":
@@ -376,7 +380,12 @@ def main() -> int:
         print(f"{TAG} chat template ON: {probe[:40]!r} ... {probe[-24:]!r} ({len(lm.tokenizer(probe)['input_ids'])} ids)", flush=True)
     else:
         print(f"{TAG} chat template OFF (their raw prompt)", flush=True)
-    torch.manual_seed(SEED)
+    # H-R15: the ONLY knob that makes a replicate a replicate. Their sampler draws with
+    # torch.multinomial from the global RNG (models.py `_sample_next_token`), so this seeds every
+    # generated token. NOTE it does not make a run deterministic -- 2026-08-29 measured 0.8333
+    # per-item agreement on this cluster with deterministic kernels PINNED -- which is precisely
+    # what the same-seed replicate in H-R15 is there to quantify for this pipeline.
+    torch.manual_seed(args.seed)
     steered = args.arm in ATTN_ARMS
     effect = None
     if steered:
@@ -411,9 +420,10 @@ def main() -> int:
         if not self_gate(lm, prep, replacer, args.self_tol, TAG):
             print(f"{TAG} FATAL: identity gate failed -> harness fault, nothing reportable"); return 3
         replacer.set_beta(args.beta)
-        rrng = np.random.default_rng(SEED)
+        rrng = np.random.default_rng(args.seed)
         packs = [p for p in packs if p["snippet"] in prep]     # excluded snippets are not written
-        json.dump({"layer": args.layer, "beta": args.beta, "aligned": sorted(prep), "excluded": excluded,
+        json.dump({"layer": args.layer, "beta": args.beta, "seed": args.seed,
+                   "aligned": sorted(prep), "excluded": excluded,
                    "n_spans": {k: len(v["spans"]) for k, v in prep.items()}},
                   open(str(args.out) + ".residual_meta.json", "w"), indent=1)
 

@@ -2,6 +2,22 @@
 
 *Run 2026-09-16 · 148 snippets / 1,742 cases · pre-registered in `log/nla-harness/2026-09-16_full-corpus-prereg.md` · results in `log/nla-harness/2026-09-16_full-corpus-results.md`*
 
+> ### ⚠ Amended 2026-09-17 — the one positive effect did not replicate
+>
+> A pre-registered replication ([H-R15](../../log/nla-harness/2026-09-17_replication-floor-results.md))
+> re-ran these arms on the same 148 snippets changing **only the sampling draw**.
+> **`codesteer_auto`'s +0.0379 became −0.0031.** The single arm whose interval excluded zero in this
+> report does not survive a different draw, and its parse-compliance component (§5) did not either
+> (Δparse +0.0293 → −0.0019). The pipeline is *exactly* reproducible at a fixed seed (per-item agreement
+> 1.0000), but **38 % of individual case labels flip** when the draw changes, and contrast drift is
+> **1.08×** this report's own half-width for `codesteer_auto`.
+>
+> **Read every interval below as ≈1.2× wider than printed**, and treat no single-run contrast here as an
+> effect. What survives unchanged: the **oracle bound** (§4) — an upper bound, not a contrast — and
+> therefore the conclusion that no better L7 vector can beat CodeSteer. What is withdrawn: any reading in
+> which `codesteer_auto` is "the most credible steering effect in this programme". **Nothing in this
+> bake-off survives replication — ours or theirs.**
+
 **Question asked:** does accuracy improve more under our NLA/residual steering than under CodeSteer, on the paper's own dataset, whole?
 
 **Answer: no.** On all 148 aligned snippets the best NLA arm sits *below* the better CodeSteer arm by −0.041, and the +0.046 lead it showed on 50 snippets does not replicate. Neither method clears the pre-registered bar, and the reason is structural: there is only ~2 points of accuracy to win at this intervention site.
@@ -37,7 +53,7 @@ Primary statistic `c/n` — accuracy over all cases × all 3 runs, case-weighted
 Two of these deserve to be read carefully rather than at the label:
 
 - **H-R14c is the user's question, and the word flatters us.** `NLA-MATCHES-CODESTEER` fires because |−0.0409| < 0.05. But the sign is negative, and the *uncorrected* 95 % interval [−0.0774, −0.0046] **excludes zero**. Only the Bonferroni α/3 widening — by 0.0049 — keeps this out of `CODESTEER-BEATS-NLA`. The defensible statement is: **NLA does not beat CodeSteer here, and may lose to it.**
-- **H-R14b is generous to CodeSteer in the other direction.** `codesteer_auto`'s +0.0379 *does* clear zero at the uncorrected 95 % level ([+0.0009, +0.0766]). It fails the frozen rule on magnitude (< 0.05) and on the Bonferroni interval. It is the most credible steering effect in this programme — and it is theirs.
+- **H-R14b is generous to CodeSteer in the other direction.** `codesteer_auto`'s +0.0379 *does* clear zero at the uncorrected 95 % level ([+0.0009, +0.0766]). It fails the frozen rule on magnitude (< 0.05) and on the Bonferroni interval. It looked like the most credible steering effect in this programme — and it is theirs. **It did not replicate (amended 2026-09-17): +0.0379 → −0.0031 at a different draw.**
 
 ## 3. Comparison to the paper's own numbers
 
