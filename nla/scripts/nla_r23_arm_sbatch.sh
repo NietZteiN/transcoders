@@ -3,7 +3,7 @@
 #SBATCH --partition=h200,h100
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=200G
+#SBATCH --mem=48G          # peak RSS measured: 15.4G (7B) / 26.7G (13B); 200G was ~7.5x over and did not fit the busy h200 nodes
 #SBATCH --time=04:00:00
 #SBATCH --output=/work/jvl210002/migration/transcoders/log/slurm/%j_nla_r23_%x.out
 # H-R23 -- one (model, condition) cell of the panel damage screen. Greedy, unsteered, 146 PACKS-PAIRED

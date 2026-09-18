@@ -78,6 +78,7 @@ from steer import PositionReplacer                  # noqa: E402  (the same writ
 TAG = "[STEER]"
 SEED = 20260724
 TEMP, TOP_P = 0.7, 1.0
+REPLY_KEEP = 400          # H-R27: chars kept from each end of a banked reply
 ANSWER_PREFIX = "\n\nJSON answer:\n"
 
 PAPER_CFG = dict(enabled_levels=[2], prior="slice_hybrid", n_bins=12, binning="equal_count",
@@ -517,7 +518,16 @@ def main() -> int:
                       f"{sid}: {eff} {dbg}", flush=True)
                 sink.close(); return 3
             pred, meta = ce.parse_predicted_labels(text, case_ids, strict_json=True)
+            # H-R27: bank a bounded excerpt of the reply. Every parse finding in this thread -- H-R9's
+            # phantom keys, H-R18's compliance story, H-R25's formatting ceiling, Phi's undiagnosed 23 %
+            # loss -- had to be inferred indirectly because the generated text was discarded, and no run
+            # could diagnose its own parse failures after the fact. Head+tail only: the head shows the
+            # format the model chose, the tail shows whether it was cut off mid-object, and the cap keeps
+            # the jsonl small enough that banking it costs nothing.
+            excerpt = text if len(text) <= 2 * REPLY_KEEP else (
+                text[:REPLY_KEEP] + f"\n...[{len(text) - 2 * REPLY_KEEP} chars elided]...\n" + text[-REPLY_KEEP:])
             per_run.append({"n_parsed": len(pred), "parse_mode": meta.get("mode"),
+                            "reply_excerpt": excerpt,
                             "pred": pred, "reply_chars": len(text),
                             "steer_calls": int(dbg.get("steer_calls", 0)),
                             "steer_enabled": bool(dbg.get("enabled", False)),

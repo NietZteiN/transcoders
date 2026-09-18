@@ -3,7 +3,7 @@
 #SBATCH --partition=h200
 #SBATCH --gres=gpu:nvidia_h200_nvl:2
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=200G
+#SBATCH --mem=48G          # peak RSS measured: 15.4G (7B) / 26.7G (13B); 200G was ~7.5x over and did not fit the busy h200 nodes
 #SBATCH --time=02:00:00
 #SBATCH --output=/work/jvl210002/migration/transcoders/log/slurm/%j_nla_fsdp_equiv.out
 # GATE before any 12B spend: is the 2-GPU FSDP path the SAME METHOD as the proven single-GPU one?
