@@ -117,3 +117,32 @@ Effect gate two-sided and live on all 148: `codesteer` 2,595–2,866 effective l
 14 GPU jobs 408488–408505, nodes g-04-02 / g-06-01 / g-07-08 / g-07-09 / g-07-11 / g-08-04 / g-08-05, all rc=0, three `--dependency=singleton` lanes with **peak 3 concurrent GPU jobs** (verified from scheduler start/end intervals). Smoke on 3 never-scored snippets first. Cross-fit job 408487 (CPU). Shas: runner `cad05d864ac91eaa…` (unchanged from the previous run), `ase_vectors.py` `2eb5109568691d41…`, `ase_r14_stats.py` `e16257bacd379aaa…`, config `18695d2e051b9a54…`, snippet set `9056b6b6aba9b0b6…`.
 
 **Also built, not yet run:** CruxEval-X Java packs — 698 snippets / 1,396 cases / 2.00 per snippet, against the paper's 698 / 1,378 / 1.97. Our builder reproduces their second corpus closely. No GPU arm has run there; given `DAMAGE-ABSENT` here, the first question is whether renaming damages this model on CruxEval at all.
+
+## 10. The greedy pass (added 2026-09-18) — with the lottery removed, there is almost nothing to fix
+
+H-R15 showed this pipeline is *exactly* reproducible at a fixed seed. That makes argmax decoding a free precision win: no draw means a contrast is a deterministic function of the corpus, so the snippet bootstrap becomes the **complete** uncertainty rather than a lower bound, and one run per case suffices.
+
+**This is a declared deviation from the paper's protocol** — their Pass@k presupposes sampling (under greedy `pass@1 == pass@2 == pass@3`) — so it complements the sampled numbers above rather than replacing them.
+
+| arm | sampled | **greedy** | shift | Δ vs baseline, sampled | **Δ greedy** |
+|---|---|---|---|---|---|
+| `original_unsteered` (L0) | 0.7015 | **0.8507** | +0.1493 | — | — |
+| `erasure` | 0.6996 | 0.8490 | +0.1494 | +0.0195 | +0.0052 |
+| `swap_oracle` (oracle) | 0.6963 | 0.8490 | +0.1527 | +0.0163 | **+0.0052 [−0.007, +0.017]** |
+| `unsteered` (L1b) | 0.6801 | **0.8439** | +0.1638 | — | — |
+| `ridge_map` (NLA) | 0.6770 | 0.8393 | +0.1623 | −0.0031 | −0.0046 |
+| `prompt` | 0.6914 | 0.8295 | +0.1382 | +0.0113 | −0.0144 |
+| `codesteer_auto` | 0.7179 | 0.8289 | +0.1110 | +0.0379 | −0.0149 |
+| `codesteer` | 0.6552 | 0.8169 | +0.1617 | −0.0249 | **−0.0270 [−0.0519, −0.0073]** |
+
+**All five verdicts hold unchanged** under the same frozen thresholds: `DAMAGE-ABSENT` (+0.0069) · `CODESTEER-INERT` · `NLA-MATCHES-CODESTEER` (+0.0103, sign flipped from −0.0409) · `PROMPT-SUFFICES` · `DAMAGE-FAR-WEAKER` (ratio 0.019). Restoration withheld again. CIs are **1.7–3.9× tighter** (`swap_oracle` ±0.0466 → ±0.0121).
+
+Three things this sharpens:
+
+1. **The decoder is worth ~16 points — more than any intervention measured here.** Argmax lifts every arm by +0.111 to +0.164. If the paper's tables were produced under T 0.7, decoder choice dominates the effect their method targets.
+2. **The oracle ceiling collapses to half a point.** Writing the *true* clean-code state at layer 7 buys +0.0052, against a renaming damage of +0.0069. Under a clean decoder there is essentially nothing at this site to repair — which retires layer-7 latent steering on this model far more decisively than §4's ~2 points did, and means **this corpus can no longer support a steering claim of any kind here**.
+3. **CodeSteer reliably harms.** −0.0270 [−0.0519, −0.0073] is the only interval in either pass that excludes zero. The frozen ±0.05 magnitude rule still returns `CODESTEER-INERT` and has not been rewritten — but the honest sentence is that CodeSteer costs this model about 2.7 points under greedy decoding.
+
+Parse is 1.000 for seven of eight arms, so the parse/compliance story in §5 was the sampler occasionally emitting malformed output, not a mechanism. `prompt` and `codesteer_auto` both flip sign between decoders, confirming the noise floor from the other direction.
+
+*Fixed in passing:* the parse column's metric counted case ids the model invented (`len(pred)/n_cases`), which greedy exposed by producing parse rates above 1.0. Accuracy was never affected — the scorer iterates the pack's own keys — and re-scoring the sampled pass with the fix reproduces every number above byte-identically.

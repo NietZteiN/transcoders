@@ -322,6 +322,14 @@ def main() -> int:
                     help="H-R15: seeds generation sampling (torch), the `foreign` pick and their "
                          "`rand` prior. Defaults to the frozen SEED, so omitting it reproduces every "
                          "run banked before 2026-09-17 bit-for-bit as far as the RNG is concerned.")
+    ap.add_argument("--greedy", action="store_true",
+                    help="H-R18: argmax decoding instead of their T=0.7 sampler. Their own "
+                         "`_sample_next_token` takes do_sample=False and returns argmax, so this is "
+                         "THEIR code path, not ours. H-R15b showed the pipeline is exactly reproducible, "
+                         "so greedy removes decoding noise entirely and one run per case suffices -- but "
+                         "it is a DEVIATION from the paper's protocol, whose Pass@k presupposes sampling "
+                         "(under greedy pass@1 == pass@2 == pass@3), so it complements the sampled runs "
+                         "rather than replacing them.")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--out", required=True)
@@ -333,6 +341,11 @@ def main() -> int:
     ap.add_argument("--cache-dir", default=None,
                     help="HF cache dir for THEIR runner (defaults to $HF_HOME/hub)")
     args = ap.parse_args()
+    if args.greedy and args.runs != 1:
+        # every greedy run would be byte-identical (H-R15b: fixed seed -> per-item agreement 1.0000),
+        # so 3 runs cost 3x the GPU for zero extra information. Refuse rather than silently spend it.
+        print(f"{TAG} REFUSED: --greedy with --runs {args.runs}; greedy runs are identical, use --runs 1")
+        return 2
 
     low = args.model_id.lower()
     if any(v in low for v in ("qwen", "deepseek", "yi-", "glm", "internlm", "baichuan")):
@@ -423,6 +436,7 @@ def main() -> int:
         rrng = np.random.default_rng(args.seed)
         packs = [p for p in packs if p["snippet"] in prep]     # excluded snippets are not written
         json.dump({"layer": args.layer, "beta": args.beta, "seed": args.seed,
+                   "decode": "greedy" if args.greedy else f"sample T{TEMP} p{TOP_P}",
                    "aligned": sorted(prep), "excluded": excluded,
                    "n_spans": {k: len(v["spans"]) for k, v in prep.items()}},
                   open(str(args.out) + ".residual_meta.json", "w"), indent=1)
@@ -481,7 +495,7 @@ def main() -> int:
             # "No layer vectors to pool." (job 399325). The steering hooks live inside the forward
             # pass and never touch the recorder, so switching it off changes nothing about steering.
             res = lm.run_llama(code, instruction, language="java",
-                               answer_prefix=ANSWER_PREFIX, do_sample=True,
+                               answer_prefix=ANSWER_PREFIX, do_sample=not args.greedy,
                                record_layers=False, record_attention=False)
             text = res.get("generated_text", "") or ""
             dbg = res.get("steering_debug") or {}

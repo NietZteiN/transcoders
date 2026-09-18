@@ -69,10 +69,27 @@ def band(mean: float, ci: list[float], pos: str, neg: str, mid: str, thr: float 
     return "UNRESOLVED"
 
 
-def parse_rate(path: Path) -> float:
-    rows = [json.loads(l) for l in open(path) if l.strip()]
-    n = sum(r["n_cases"] for r in rows)
-    return float(sum(r["parsed_frac"] * r["n_cases"] for r in rows) / n) if n else float("nan")
+def parse_rate(path: Path, truth: dict) -> float:
+    """PER-CASE parse: the share of (case x run) cells for which the model emitted a label for a case
+    that is actually IN the pack.
+
+    NOT the banked `parsed_frac`, which is `len(pred)/n_cases` and therefore counts case ids the model
+    invented. That is the phantom-key fault corrected on 2026-09-15 for the reported tables, but it
+    survived in this helper until the H-R18 greedy pass made it visible: with clean formatting the model
+    emits every real key AND a few invented ones, so `parsed_frac` came out ABOVE 1.0 (1.020, 1.021).
+    Accuracy was never affected -- `ase_bakeoff_stats.load` iterates the pack's own keys -- so no verdict
+    moves; only this column was wrong."""
+    npar = ncase = 0
+    for l in open(path):
+        if not l.strip():
+            continue
+        r = json.loads(l)
+        tr = truth[r["snippet"]]
+        for run in r["runs"]:
+            for c in tr:
+                ncase += 1
+                npar += run["pred"].get(c) is not None
+    return npar / ncase if ncase else float("nan")
 
 
 def main() -> int:
@@ -109,8 +126,8 @@ def main() -> int:
                                        np.array([orig[k][1] for k in common], dtype=float))
         S["accuracy"] = acc
         S["n_cases"] = int(sum(uns[k][1] for k in common))
-        S["parse_rate"] = {a: parse_rate(D / f"{a}.jsonl") for a in arms}
-        S["parse_rate"]["original_unsteered"] = parse_rate(Path(args.original))
+        S["parse_rate"] = {a: parse_rate(D / f"{a}.jsonl", truth) for a in arms}
+        S["parse_rate"]["original_unsteered"] = parse_rate(Path(args.original), truth)
         S["vs_unsteered"] = {a: paired(arms[a], uns, i) for i, a in enumerate(sorted(arms)) if a != "unsteered"}
 
         # ---- H-R14a: damage ----
