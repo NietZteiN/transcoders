@@ -18,6 +18,9 @@ export REPL=/work/jvl210002/migration/allocation_replication
 export CONDA_ROOT=/work/jvl210002/conda_envs
 export NLA_ENV=$CONDA_ROOT/nla-mi
 export CS_ENV=$CONDA_ROOT/codesteer
+# Instrument 3's own env (SAE/transcoder work: E1-E7). Lives under $CONDA_ROOT like the others;
+# scripts/env.sh still named the retired /data prefix, which is why nothing could find it.
+export MI_ENV=$CONDA_ROOT/transcoders-mi
 
 # HF_HOME already migrated; keep model caches and pip temp off the small $HOME NFS.
 export HF_HOME=/work/jvl210002/migration/hf_home

@@ -1,5 +1,12 @@
 # Full pip freeze of /data/jvl210002/conda_envs/transcoders-mi
 # Frozen 2026-08-03 after first clean solve + circuit-tracer install. Provenance companion to environment.yml.
+# KNOWN DEFECT (found 2026-09-19, pins deliberately left untouched): line 93 records `packaging` as
+#   packaging @ file:///home/conda/feedstock_root/build_artifacts/.../work
+# because it came from conda and `pip freeze` writes conda-installed distributions as a file:// URL to
+# their build directory. That path exists nowhere, so `pip install -r` on THIS file aborts the whole
+# resolve on any machine, including the host that produced it. scripts/mi_env_rebuild_sbatch.sh strips
+# `@ file://` lines (they are conda-provided base packages, already in the prefix) and installs
+# circuit-tracer from a local checkout at the pinned sha. Install through that script, not by hand.
 accelerate==1.14.0
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
