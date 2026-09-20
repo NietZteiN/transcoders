@@ -1,13 +1,23 @@
 # Experiment backlog — Instrument 3
 
-*Last updated: 2026-09-19 · supersedes nothing; `CHECKLIST.md` remains the hypothesis ledger*
+*Last updated: 2026-09-20 · supersedes nothing; `CHECKLIST.md` remains the hypothesis ledger*
 
 Ordered by what unblocks the most. Costs are GPU-hours unless marked CPU. Status is what a run would
 actually hit today, verified 2026-09-19, not what the charter assumes.
 
 ---
 
-## Tier 0 — unblock the charter (nothing below Tier 0 can run first)
+## Tier 0 — unblock the charter ✅ COMPLETE (2026-09-19/20)
+
+**All three done.** T0.1 restored the env — the blocker was `environment.lock.txt`, not the machine: a
+`@ file://` local build path on line 93 that resolves nowhere, and a pinned `torch==2.13.0+cu130`
+needing a CUDA 13 driver this cluster does not have (juno reports 12.4; swapped to 2.11.0+cu128, which
+every constraint in the stack accepts). T0.2 rebased `scripts/env.sh` off the retired `/data` paths.
+T0.3 returned **`DICT-MARGINAL`** with the gate's own question passing — base→instruct transfer costs
+≤0.049 — and found the **BOS correction** (FVE −2100.8 → +0.444) that applies to E1/E2/E7 alike.
+**E1 is unblocked**; run it at L16/L20. Details: [`../log/instrument3/`](../log/instrument3/).
+
+## Tier 0 — original entries (nothing below Tier 0 could run first)
 
 The `nla/` sub-thread (ASE/CodeSteer) consumed this week and is **finished**. The experiments this
 sub-project actually exists for — **E1/E2/E3/E7** in `CLAUDE.md` §3 — have **never run**, and the reason

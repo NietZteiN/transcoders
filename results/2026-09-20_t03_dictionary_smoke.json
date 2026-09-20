@@ -1,0 +1,41 @@
+{
+ "model": "meta-llama/Llama-3.1-8B-Instruct",
+ "release": "llama_scope_lxr_8x",
+ "sae_id": "l8r_8x",
+ "layer": 8,
+ "n_prompts": 24,
+ "fve": -2100.8257344086,
+ "l0": 78.94306310017903,
+ "dead_feature_share_on_sample": 0.374237060546875,
+ "thresholds": {
+  "fve_healthy": 0.7,
+  "fve_degenerate": 0.5,
+  "l0_range": [
+   10,
+   200
+  ]
+ },
+ "verdict": "DICT-DEGENERATE",
+ "provenance": {
+  "pinned_dir": "/work/jvl210002/migration/hf_home/hub/models--OpenMOSS-Team--Llama3_1-8B-Base-LXR-8x/snapshots/8dbc1d85edfced43081c03c38b05514dbab1368b/Llama3_1-8B-Base-L8R-8x",
+  "checked": true,
+  "tensors": {
+   "encoder.weight": {
+    "shape_match": true,
+    "exact_allclose": false,
+    "best_scalar_k": 10.138614831498696,
+    "relative_residual_after_scaling": 9.695893820628725e-15,
+    "cosine": 1.0000000583287678,
+    "same_dictionary_up_to_scale": true
+   },
+   "decoder.weight": {
+    "shape_match": true,
+    "exact_allclose": false,
+    "best_scalar_k": 0.09863280826276549,
+    "relative_residual_after_scaling": 7.519787405068333e-15,
+    "cosine": 0.9999999433584363,
+    "same_dictionary_up_to_scale": true
+   }
+  }
+ }
+}
